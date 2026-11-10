@@ -5,49 +5,96 @@ e **funcionários (Usuário X)**, com agenda automática, aparelhos (Workstation
 Idioma da interface e dos textos: **português do Brasil**. Responda ao usuário em português.
 
 ## Estrutura
-- `index.html` — o sistema inteiro (CSS no topo, HTML mínimo, **um grande `<script>` no final**).
-- `local-runtime.js` — banco local (localStorage) que emula `claude.use('db')` e `claude.use('user')`.
-  Na versão publicada no claude.ai esse runtime vem do próprio claude.ai; aqui ele é emulado.
-- `iniciar.bat` / `iniciar.sh` — sobem `python -m http.server 8000`.
-- `tests/smoke.py` — teste de fumaça com Playwright (cadastro + login).
+JavaScript puro, **sem build**: scripts clássicos carregados em ordem pelo `index.html`
+(todos compartilham o escopo global; funciona até abrindo o arquivo direto, via `file://`).
+
+```
+index.html                 esqueleto HTML + ordem de carregamento dos scripts
+css/styles.css             tema (tokens em :root / [data-theme=dark]) e componentes
+js/runtime/local-runtime.js  banco local (localStorage) que emula claude.use('db'|'user')
+js/core/                   utils.js (DOM, datas, formatação, cripto, imagens),
+                           constants.js (status, prioridades, cargos, PRESETS),
+                           state.js (objetos `state` e `ui`, acesso ao banco)
+js/domain/                 regras de negócio, sem HTML:
+                           schedule.js (semana, findSlot, fitsAt, disponibilidade),
+                           tasks.js (criar/aceitar/iniciar/concluir/reagendar),
+                           devices.js (aparelhos, categorias, problemas, tutoriais),
+                           layout.js (ordem e grupos dos aparelhos),
+                           auth.js (login, contas salvas, assinaturas onSnapshot)
+js/views/                  funções que devolvem HTML (string): components, layout,
+                           agenda, tasks, team, devices, account, notifications,
+                           tutorials, modals
+js/app/                    render.js (abas e render()), actions.js (o que cada botão faz),
+                           events.js (listeners globais), drag.js (arrastar tarefas),
+                           device-drag.js (arrastar aparelhos/grupos), main.js (boot)
+tests/smoke.py             teste rápido (cadastro + login)
+tests/e2e.py               teste ponta a ponta dos fluxos principais (relógio fixo)
+```
 
 ## Como rodar
 `python -m http.server 8000` na pasta e abrir http://localhost:8000 (ou extensão Live Server).
 Os dados ficam no localStorage do navegador (chave `tm_db_v1`). Para zerar: apagar essa chave.
 
+Testes: `pip install playwright && playwright install chromium`, depois
+`python tests/smoke.py` e `python tests/e2e.py`. Rode o e2e após qualquer mudança.
+
 ## Modelo de dados (coleções do banco)
 - `cred/<id>` — `{salt, hash, aid}` credenciais (PBKDF2 no navegador). `id` = hash do e-mail.
 - `profiles/<aid>` — `{name, role:'func'|'sol', email, ck, theme, seen, start,end,bs,be (jornada),
-  off:[{s,e,note}] (folgas pontuais), wk:[0..6] (folga semanal), ws:{cargo,cats,hidden,probs,setup,s1}}`.
+  off:[{s,e,note}] (folgas pontuais), wk:[0..6] (folga semanal), ws:{cargo,cats,hidden,probs,setup,s1,layout}}`.
+  `ws.layout` = organização dos aparelhos: `[{type:'dev',id} | {type:'group',id,name,cat?,items:[devId]}]`
+  (sem layout, cada categoria vira um grupo — ver `js/domain/layout.js`).
+  Solicitante: `devCatOrder:[categoria]` = ordem das categorias na aba Aparelhos.
   `ws.probs[categoria]` = lista de problemas de manutenção (senão usa `PRESETS`).
+  Perfis antigos podem ter `ws.areas` no lugar de `ws.cats` (tratado por `savedCategories()`).
 - `tasks/<id>` — `{title,desc,prio:'alta|neutra|baixa',dur,emp,req,status,start,initial,hist[],summary,
   dev,devName,devArea,devIp,preset,tipo:'manutencao'}`.
   Status: `aguardando` → `pendente`/`agendada` → `andamento` ⇄ `pausada` → `concluida` | `cancelada`.
 - `devices/<id>` — `{owner,name,ip,area,status:'Operacional|Em manutenção|Fora de uso',log[],created}`.
 - `notifs/<id>` — `{to,txt,at}`.
 - `tutorials/<id>` — um documento por passo: `{cat,prob,order,img(dataURL),txt,by}`.
+- localStorage (fora do banco): `theme`, `aid` (sessão; também em sessionStorage), `accts` (contas salvas).
+
+**Não renomeie campos nem chaves**: os dados já gravados nos navegadores dependem deles.
 
 ## Regras de negócio principais
 - Solicitante cria a tarefa **sem duração**; só o funcionário define a duração e agenda
-  (arrastando o cartão para um horário livre, ou botão "Auto").
-- Agenda limitada à **semana corrente dentro do mês** (`WK()`); `findSlot()` respeita jornada, intervalo,
-  folgas (`off`), folga semanal (`wk`) e tarefas já marcadas.
+  (arrastando o cartão para um horário livre, tocando no cartão e depois no horário, ou botão "Auto").
+- Agenda limitada à **semana corrente dentro do mês** (`currentWeek()`); `findSlot()` respeita jornada,
+  intervalo, folgas (`off`), folga semanal (`wk`) e tarefas já marcadas.
 - Uma tarefa em andamento por vez (por funcionário). Iniciar antes do horário puxa a tarefa para agora;
   concluir antes do previsto encurta a duração e libera o horário.
 - Tarefa vinculada a aparelho vira "Manutenção"; o relato da conclusão vai para o log do aparelho.
+- O funcionário define o horário de trabalho (entrada, saída e almoço) em Menu → "Horário de trabalho e folgas"
+  (validação: entrada < almoço início < almoço fim < saída).
+- Folga nova (semanal ou pontual) ou mudança no horário de trabalho devolve para "pendente" as tarefas
+  agendadas que ficarem fora e reagenda automaticamente.
+- O funcionário organiza os aparelhos na Workstation arrastando (mouse: cartão inteiro; toque: alça ⠿):
+  borda de outro aparelho = reordena; meio = cria grupo (ou entra no grupo dele); fora dos grupos = solta.
+- Na aba Aparelhos do **solicitante**, os aparelhos de todos aparecem agrupados por categoria; ele só pode
+  arrastar as categorias para reordenar (sem mover aparelhos nem desfazer grupos). A ordem é pessoal:
+  `profiles/<id>.devCatOrder = [categoria…]` (`requesterCategoryOrder()` / `moveCategory()` em `js/domain/layout.js`).
 - Solicitante só enxerga: agenda (outros horários aparecem como "Ocupado"), Equipe, Aparelhos (somente leitura).
+- Ninguém é notificado das próprias ações (`notify()` ignora o próprio usuário).
 
 ## Convenções do código
-- JavaScript puro, sem build. Funções `vXxx()` retornam HTML (string); `render()` monta tudo.
-- `render()` não redesenha enquanto há campo de texto em foco (fora da Agenda) nem durante arrasto (`dg`).
-- Todo clique passa pelo listener global em `document` (botões com `data-*`); modais reutilizam `#md`/`#mdb`.
-- `say(msg)` mostra um toast; `note(userId, txt)` cria notificação; `commit(id,patch,txt)` atualiza tarefa + histórico.
-- Há trechos com sequências literais `\uXXXX` dentro de strings JS (ok em tempo de execução).
+- Nomes em inglês no código, textos da interface em português.
+- `viewXxx()` devolvem o HTML de uma aba; componentes em `views/components.js`.
+  Todo texto do usuário/banco passa por `esc()`; `when(cond, html)` e `each(lista, fn)` ajudam a montar HTML.
+- `render()` redesenha tudo a partir de `state`/`ui`; não redesenha enquanto há campo de texto em foco
+  em `<main>` (fora da Agenda) nem durante arrasto (`ui.drag`).
+- Cliques passam por um listener global (`app/events.js`) que despacha para `ACTIONS_BY_ID[btn.id]`
+  ou `ACTIONS_BY_DATA[chave do data-*]` (`app/actions.js`). Para um botão novo, adicione a entrada lá.
+- Modais: `openModal(html, {wide})` / `closeModal()`; o botão `#dn_no` fecha qualquer modal.
+- `say(msg)` mostra um toast; `notify(userId, txt)` cria notificação;
+  `commitTask(id, patch, txt)` atualiza tarefa + histórico (e o estado local na hora).
+- Ids de elementos com prefixo por tela (`a_` login, `f_` nova tarefa, `dv_` aparelho, `p_`/`em_`/`pw_` conta,
+  `o_` folga, `w_`/`wc_` workstation, `tu_` tutorial) — os testes dependem deles.
 - Tema: variáveis CSS em `:root` e `:root[data-theme=dark]`.
 
 ## Limitações conhecidas / próximos passos
 - Login é simulado no navegador; não há servidor. Para uso real com várias máquinas é preciso backend
-  (banco + autenticação) e trocar `local-runtime.js` por chamadas à API.
+  (banco + autenticação) e trocar `js/runtime/local-runtime.js` por chamadas à API.
 - Só a categoria **Impressora** tem problemas pré-definidos de fábrica; faltam Computador, Raspberry Pi, Orange Pi, Móvel 0–3.
 - Tutoriais (Menu ☰ → Tutoriais) estão prontos, mas sem conteúdo.
 - Fotos de aparelhos ainda não existem (o cartão usa o ícone da categoria).

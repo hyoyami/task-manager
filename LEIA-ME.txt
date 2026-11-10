@@ -1,9 +1,0 @@
-TASK MANAGER - projeto para VS Code
-===================================
-1. Extraia o zip e abra a pasta "task-manager" no VS Code (Arquivo > Abrir Pasta).
-2. Aceite a instalacao das extensoes recomendadas (Claude Code e Live Server).
-3. Para rodar: clique em "Go Live" (Live Server) ou execute iniciar.bat / iniciar.sh
-   (precisa de Python) e abra http://localhost:8000
-4. Para o Claude trabalhar no projeto: abra o painel do Claude Code (icone de faisca)
-   e peca as alteracoes. O arquivo CLAUDE.md explica o projeto para ele.
-Os dados ficam no navegador (localStorage), neste computador.
