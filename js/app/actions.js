@@ -287,7 +287,7 @@ const ACTIONS_BY_DATA = {
   sw: () => { ui.accountSwitcher = !ui.accountSwitcher; render(); },
   acc: (v) => switchAccount(v),
   accx: (v) => { forgetAccount(v); render(); },
-  newacc: () => { openMenu(false); logout(); },
+  newacc: () => { openMenu(false); return addAnotherAccount(); },
   // Tarefas
   a: (v, btn) => (v === 'concluir' ? openCompleteTask(btn.dataset.i) : taskAction(btn.dataset.i, v)),
   d: (v, btn) => changeDuration(btn.dataset.i, +v),

@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Inicialização: obtém o banco (claude.ai ou local-runtime.js),
+   Inicialização: obtém o banco e o login do back-end ativo (js/runtime/),
    liga os eventos e retoma a sessão salva, se houver.
    ========================================================================== */
 'use strict';
@@ -15,14 +15,13 @@ async function boot() {
     if (ui.tab === 'equipe' || (ui.tab === 'agenda' && allTasks().some((t) => t.status === 'andamento'))) render();
   }, TEAM_REFRESH_MS);
   try {
-    const user = await claude.use('user');
     state.db = await claude.use('db');
-    const userId = user && await user.id();
-    if (!state.db || !userId) {
-      $('#app').innerHTML = '<div class="card">Abra esta página no claude.ai, com login, para usar o sistema.</div>';
+    state.auth = await claude.use('auth');
+    if (!state.db || !state.auth) {
+      $('#app').innerHTML = '<div class="card">Não foi possível conectar ao banco de dados. Verifique a internet e recarregue a página.</div>';
       return;
     }
-    const saved = storage.get(SESSION_KEY) || storage.get(SESSION_KEY, sessionStorage);
+    const saved = await state.auth.restore();
     if (saved) startSession(saved);
     else render();
   } catch (err) {

@@ -8,8 +8,9 @@
 'use strict';
 
 const state = {
-  /** Banco de dados (claude.use('db') ou o emulador local-runtime.js). */
+  /** Banco de dados e login do back-end ativo (js/runtime/: Supabase ou local). */
   db: null,
+  auth: null,
   /** Id da conta logada (aid) e seu perfil. */
   uid: null,
   me: null,

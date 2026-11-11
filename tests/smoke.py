@@ -5,7 +5,7 @@ Uso:     python tests/smoke.py
 import pathlib
 from playwright.sync_api import sync_playwright
 
-INDEX = (pathlib.Path(__file__).resolve().parent.parent / "index.html").as_uri()
+INDEX = (pathlib.Path(__file__).resolve().parent.parent / "index.html").as_uri() + "?backend=local"
 
 with sync_playwright() as p:
     b = p.chromium.launch()

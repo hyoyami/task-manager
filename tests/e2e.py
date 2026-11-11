@@ -26,7 +26,7 @@ from zoneinfo import ZoneInfo
 from playwright.sync_api import sync_playwright
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-INDEX = (ROOT / "index.html").as_uri()
+INDEX = (ROOT / "index.html").as_uri() + "?backend=local"  # testes usam o banco local
 TZ = ZoneInfo("America/Sao_Paulo")
 NOW = datetime(2026, 11, 11, 9, 0, tzinfo=TZ)
 

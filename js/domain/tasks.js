@@ -264,7 +264,8 @@ async function taskAction(id, action, summary) {
   if (['concluir', 'cancelar', 'recusar'].includes(action)) {
     const extra = action === 'concluir' && summary ? ' — ' + summary.slice(0, 120) : '';
     notify(t.req, 'Tarefa ' + quote(t) + ': ' + label.toLowerCase() + extra);
-    await scheduleWaiting(t.emp);
+    // Reencaixar a agenda mexe em tarefas de outros solicitantes: só o próprio funcionário faz.
+    if (t.emp === state.uid) await scheduleWaiting(t.emp);
   } else if (action === 'iniciar') {
     await markDeviceStarted(t);
     notify(t.req, 'Tarefa ' + quote(t) + ' iniciada');

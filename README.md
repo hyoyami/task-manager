@@ -27,16 +27,19 @@ python -m http.server 8000
 
 Ou execute `iniciar.bat` (Windows) / `iniciar.sh` (Linux/macOS).
 
-Os dados ficam no **localStorage do navegador** (chave `tm_db_v1`), ou seja, cada navegador tem
-seu próprio banco. Para uso real em várias máquinas é preciso um backend — veja
-[CLAUDE.md](CLAUDE.md#limitações-conhecidas--próximos-passos).
+Os dados ficam no **Supabase** (PostgreSQL na nuvem), com login, permissões por usuário (RLS) e
+atualização em tempo real entre todos os aparelhos. O esquema do banco está em
+[supabase/schema.sql](supabase/schema.sql).
+
+Para desenvolver sem internet, abra com `?backend=local`: os dados ficam no navegador.
 
 ## Estrutura
 
 ```
 index.html        página (esqueleto + ordem dos scripts)
 css/styles.css    estilos e temas
-js/runtime/       banco local (emula a API do claude.ai)
+js/runtime/       back-end: Supabase (produção) ou local (desenvolvimento/testes)
+supabase/         esquema SQL do banco (tabelas, permissões, tempo real)
 js/core/          utilitários, constantes e estado
 js/domain/        regras de negócio (agenda, tarefas, aparelhos, autenticação)
 js/views/         telas e componentes (geram HTML)
@@ -53,5 +56,6 @@ e convenções estão em [CLAUDE.md](CLAUDE.md).
 pip install playwright
 playwright install chromium
 python tests/smoke.py   # cadastro + login
-python tests/e2e.py     # fluxos completos com relógio fixo
+python tests/e2e.py     # fluxos completos com relógio fixo (modo local)
+python tests/supabase_e2e.py  # integração com o Supabase real
 ```

@@ -39,7 +39,10 @@
   <div id="pops"></div>
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <!-- Banco local (no claude.ai, o próprio site fornece `claude.use`). -->
+  <!-- Back-end: config escolhe Supabase (padrão) ou local; só o escolhido se ativa. -->
+  <script src="js/runtime/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js"></script>
+  <script src="js/runtime/supabase-runtime.js"></script>
   <script src="js/runtime/local-runtime.js"></script>
 
   <!-- Ordem importa: cada arquivo usa o que foi definido nos anteriores. -->

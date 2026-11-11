@@ -11,7 +11,11 @@ JavaScript puro, **sem build**: scripts clássicos carregados em ordem pelo `ind
 ```
 index.html                 esqueleto HTML + ordem de carregamento dos scripts
 css/styles.css             tema (tokens em :root / [data-theme=dark]) e componentes
-js/runtime/local-runtime.js  banco local (localStorage) que emula claude.use('db'|'user')
+js/runtime/                config.js (escolhe o back-end + URL/chave pública do Supabase),
+                           supabase-runtime.js (banco/login/tempo real no Supabase — produção),
+                           local-runtime.js (localStorage + login simulado — desenvolvimento/testes).
+                           Ambos expõem claude.use('db'|'auth'|'user') com a mesma API.
+supabase/schema.sql        tabelas, RLS, funções, tempo real e visões (idempotente)
 js/core/                   utils.js (DOM, datas, formatação, cripto, imagens),
                            constants.js (status, prioridades, cargos, PRESETS),
                            state.js (objetos `state` e `ui`, acesso ao banco)
@@ -28,18 +32,34 @@ js/app/                    render.js (abas e render()), actions.js (o que cada b
                            events.js (listeners globais), drag.js (arrastar tarefas),
                            device-drag.js (arrastar aparelhos/grupos), main.js (boot)
 tests/smoke.py             teste rápido (cadastro + login)
-tests/e2e.py               teste ponta a ponta dos fluxos principais (relógio fixo)
+tests/e2e.py               teste ponta a ponta dos fluxos principais (relógio fixo, modo local)
+tests/supabase_e2e.py      integração real com o Supabase (2 navegadores, tempo real, RLS) + limpeza
 ```
 
 ## Como rodar
 `python -m http.server 8000` na pasta e abrir http://localhost:8000 (ou extensão Live Server).
-Os dados ficam no localStorage do navegador (chave `tm_db_v1`). Para zerar: apagar essa chave.
+Por padrão usa o **Supabase** (projeto `fguabpdfmqjcmvrpdicg`, região São Paulo).
+Modo local (dados no localStorage, chave `tm_db_v1`): abrir com `?backend=local`
+ou `localStorage.setItem('tm_backend','local')`.
+
+## Banco (Supabase)
+- Cada coleção é uma tabela `{id text, data jsonb}` + colunas geradas (`emp`, `req`, `dev`, `owner`, `to_user`…)
+  usadas em índices e permissões. `update()` do app = função `doc_merge` (mescla jsonb).
+- Login: Supabase Auth (`profiles.id = auth.uid()`); a coleção `cred` só existe no modo local.
+- RLS (ver `supabase/schema.sql`): só usuários logados; perfil só o dono edita; tarefa o solicitante cria e só
+  solicitante/responsável alteram; aparelho o dono (ou quem tem tarefa vinculada) altera; notificação só o
+  destinatário lê; tutoriais só funcionários editam. Por isso reencaixar a agenda (`scheduleWaiting`) só roda
+  no cliente do próprio funcionário.
+- Mudou o esquema? Edite `supabase/schema.sql` e execute-o de novo (é idempotente).
+- Visões para relatórios: `v_tasks`, `v_devices`.
 
 Testes: `pip install playwright && playwright install chromium`, depois
-`python tests/smoke.py` e `python tests/e2e.py`. Rode o e2e após qualquer mudança.
+`python tests/smoke.py` e `python tests/e2e.py` (modo local). Rode o e2e após qualquer mudança.
+`python tests/supabase_e2e.py` testa contra o Supabase real (exige confirmação de e-mail desligada e
+`~/.supabase-token` para limpar os usuários de teste).
 
 ## Modelo de dados (coleções do banco)
-- `cred/<id>` — `{salt, hash, aid}` credenciais (PBKDF2 no navegador). `id` = hash do e-mail.
+- `cred/<id>` — só no modo local: `{salt, hash, aid}` credenciais (PBKDF2 no navegador). `id` = hash do e-mail.
 - `profiles/<aid>` — `{name, role:'func'|'sol', email, ck, theme, seen, start,end,bs,be (jornada),
   off:[{s,e,note}] (folgas pontuais), wk:[0..6] (folga semanal), ws:{cargo,cats,hidden,probs,setup,s1,layout}}`.
   `ws.layout` = organização dos aparelhos: `[{type:'dev',id} | {type:'group',id,name,cat?,items:[devId]}]`
@@ -53,7 +73,8 @@ Testes: `pip install playwright && playwright install chromium`, depois
 - `devices/<id>` — `{owner,name,ip,area,status:'Operacional|Inoperante|Em manutenção|Fora de uso',log[],created}`.
 - `notifs/<id>` — `{to,txt,at}`.
 - `tutorials/<id>` — um documento por passo: `{cat,prob,order,img(dataURL),txt,by}`.
-- localStorage (fora do banco): `theme`, `aid` (sessão; também em sessionStorage), `accts` (contas salvas).
+- localStorage (fora do banco): `theme`, `accts` (contas salvas), `tm_backend`; modo local: `aid` (sessão);
+  Supabase: sessão do Auth, `tm_keep` (manter conectado) e `tm_sessions` (sessões das contas salvas).
 
 **Não renomeie campos nem chaves**: os dados já gravados nos navegadores dependem deles.
 
@@ -107,8 +128,10 @@ Testes: `pip install playwright && playwright install chromium`, depois
 - Tema: variáveis CSS em `:root` e `:root[data-theme=dark]`.
 
 ## Limitações conhecidas / próximos passos
-- Login é simulado no navegador; não há servidor. Para uso real com várias máquinas é preciso backend
-  (banco + autenticação) e trocar `js/runtime/local-runtime.js` por chamadas à API.
+- Regras de agenda rodam no navegador; o RLS limita quem altera o quê, mas a lógica não é validada no
+  servidor. Próximo passo possível: mover ações críticas para funções do banco (RPC).
+- Fotos dos tutoriais ficam no jsonb (data URL); para muitas fotos, mover para o Supabase Storage.
+- Confirmação de e-mail desligada (o plano grátis só envia 2 e-mails/hora); para religar, configurar SMTP próprio.
 - Só a categoria **Impressora** tem problemas pré-definidos de fábrica; faltam Computador, Raspberry Pi, Orange Pi, Móvel 0–3.
 - Tutoriais (Menu ☰ → Tutoriais) estão prontos, mas sem conteúdo.
 - Fotos de aparelhos ainda não existem (o cartão usa o ícone da categoria).

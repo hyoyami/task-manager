@@ -1,30 +1,14 @@
 /* ==========================================================================
-   Autenticação simulada no navegador, contas salvas e sincronização.
+   Login, contas salvas e sincronização em tempo real.
 
-   - cred/<id>: { salt, hash, aid } — id = primeiros 24 hex do SHA-256 do e-mail.
-   - A sessão é o "aid" salvo no localStorage (manter conectado) ou sessionStorage.
-   ATENÇÃO: sem servidor, isto não é segurança real — ver CLAUDE.md.
+   O login é feito pelo adaptador `state.auth` (claude.use('auth')), fornecido
+   pelo back-end ativo — Supabase Auth em produção ou o login simulado do modo
+   local (js/runtime/). O id da conta (state.uid) é o id do perfil em profiles/.
    ========================================================================== */
 'use strict';
 
-const SESSION_KEY = 'aid';
 const ACCOUNTS_KEY = 'accts';
 const MAX_SAVED_ACCOUNTS = 8;
-
-const credId = async (email) => (await sha256(email)).slice(0, 24);
-
-async function getCredential(id) {
-  const snap = await doc('cred/' + id).get().catch(() => null);
-  return snap && snap.data();
-}
-
-/** Credencial do usuário logado, se `password` estiver correta; senão null. */
-async function checkMyPassword(password) {
-  const id = state.me.ck || state.uid;
-  const cred = await getCredential(id);
-  if (!cred || await hashPassword(password, cred.salt) !== cred.hash) return null;
-  return { id, cred };
-}
 
 // ---------- Contas salvas neste aparelho ----------
 function savedAccounts() {
@@ -46,30 +30,27 @@ const forgetAccount = (id) => setSavedAccounts(savedAccounts().filter((a) => a.i
 async function submitAuth() {
   const email = $('#a_e').value.trim().toLowerCase();
   const password = $('#a_p').value;
+  const keep = $('#a_k').checked;
+  const signup = ui.authMode === 'up';
   const fail = (msg) => { ui.authMsg = msg; $('#a_m').textContent = msg; };
 
   if (!isValidEmail(email)) return fail('Informe um e-mail válido.');
   if (password.length < 6) return fail('A senha precisa ter ao menos 6 caracteres.');
+  const name = signup ? $('#a_n').value.trim() : '';
+  const role = signup ? $('#a_r').value : '';
+  if (signup && !name) return fail('Informe seu nome.');
 
-  const id = await credId(email);
-  const cred = await getCredential(id);
-
-  if (ui.authMode === 'up') {
-    const name = $('#a_n').value.trim();
-    if (!name) return fail('Informe seu nome.');
-    if (cred) return fail('Este e-mail já está cadastrado.');
-    const salt = randomSalt();
-    await doc('cred/' + id).set({ salt, hash: await hashPassword(password, salt) });
-    await doc('profiles/' + id).set({ ...DEFAULT_SCHEDULE, name, role: $('#a_r').value, seen: 0, ck: id, email });
-  } else if (!cred || await hashPassword(password, cred.salt) !== cred.hash) {
-    return fail('E-mail ou senha incorretos.');
+  let id;
+  try {
+    id = signup ? await state.auth.signUp(email, password, keep) : await state.auth.signIn(email, password, keep);
+  } catch (err) {
+    return fail(err.message);
   }
 
-  const aid = cred?.aid || id;
-  if (ui.authMode !== 'up') await doc('profiles/' + aid).update({ ck: id, email }).catch(() => {});
-  storage.set(SESSION_KEY, aid, $('#a_k').checked ? localStorage : sessionStorage);
+  if (signup) await doc('profiles/' + id).set({ ...DEFAULT_SCHEDULE, name, role, seen: 0, ck: id, email });
+  else await doc('profiles/' + id).update({ email }).catch(() => {});
   ui.authMsg = '';
-  startSession(aid);
+  startSession(id);
 }
 
 function stopSync() {
@@ -77,9 +58,8 @@ function stopSync() {
   ui.unsubscribers = [];
 }
 
-function logout() {
-  storage.remove(SESSION_KEY);
-  storage.remove(SESSION_KEY, sessionStorage);
+/** Volta para a tela de login sem encerrar a sessão no back-end. */
+function showLogin() {
   stopSync();
   state.uid = null;
   resetSession();
@@ -87,13 +67,26 @@ function logout() {
   render();
 }
 
+async function logout() {
+  await state.auth.signOut().catch((err) => console.warn(err));
+  showLogin();
+}
+
+/** "Entrar com outra conta": a conta atual continua salva para "Trocar de conta". */
+async function addAnotherAccount() {
+  await state.auth.detach();
+  showLogin();
+}
+
 /** Troca para outra conta salva neste aparelho (sem pedir senha). */
-function switchAccount(id) {
-  [localStorage, sessionStorage].forEach((area) => {
-    if (storage.get(SESSION_KEY, area)) storage.set(SESSION_KEY, id, area);
-  });
-  resetSession();
+async function switchAccount(id) {
   openMenu(false);
+  if (!(await state.auth.resume(id))) {
+    forgetAccount(id);
+    say('Sessão dessa conta expirou. Entre novamente com ela.');
+    return addAnotherAccount();
+  }
+  resetSession();
   startSession(id);
   render();
 }
@@ -102,23 +95,25 @@ function switchAccount(id) {
 async function changeEmail() {
   const email = $('#em_n').value.trim().toLowerCase();
   if (!isValidEmail(email)) return say('Informe um e-mail válido.');
-  const ok = await checkMyPassword($('#em_p').value);
-  if (!ok) return say('Senha atual incorreta.');
-  const newId = await credId(email);
-  if (newId !== ok.id && await getCredential(newId)) return say('Este e-mail já está em uso.');
-  await doc('cred/' + newId).set({ salt: ok.cred.salt, hash: ok.cred.hash, aid: state.uid });
-  if (newId !== ok.id) await doc('cred/' + ok.id).delete();
-  await updateMyProfile({ ck: newId, email });
+  let result;
+  try {
+    result = await state.auth.changeEmail(email, $('#em_p').value);
+  } catch (err) {
+    return say(err.message);
+  }
+  if (result?.pending) return say('Enviamos um link ao novo e-mail. A troca vale após a confirmação.');
+  await updateMyProfile({ email });
   say('E-mail alterado.');
 }
 
 async function changePassword() {
   const next = $('#pw_n').value;
   if (next.length < 6) return say('A nova senha precisa ter ao menos 6 caracteres.');
-  const ok = await checkMyPassword($('#pw_c').value);
-  if (!ok) return say('Senha atual incorreta.');
-  const salt = randomSalt();
-  await doc('cred/' + ok.id).update({ salt, hash: await hashPassword(next, salt) });
+  try {
+    await state.auth.changePassword($('#pw_c').value, next);
+  } catch (err) {
+    return say(err.message);
+  }
   say('Senha alterada.');
 }
 
