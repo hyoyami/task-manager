@@ -132,9 +132,29 @@ button.icon-btn { position: relative; border: 0; background: none; padding: 8px;
 .card.clickable { cursor: pointer; }
 .empty { text-align: center; padding: 28px 12px; }
 
-.prio-alta   { border-left: 4px solid var(--danger); }
-.prio-neutra { border-left: 4px solid var(--warning); }
-.prio-baixa  { border-left: 4px solid var(--success); }
+.prio-alta   { --prio: var(--danger); }
+.prio-neutra { --prio: var(--warning); }
+.prio-baixa  { --prio: var(--success); }
+.prio-alta, .prio-neutra, .prio-baixa { border-left: 4px solid var(--prio); }
+
+/* Tarefa em andamento: borda inteira na cor da prioridade. */
+.card.running {
+  border-color: var(--prio);
+  border-top-width: 2px;
+  border-right-width: 2px;
+  border-bottom-width: 2px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--prio) 18%, transparent);
+}
+
+/* Topo do cartão de tarefa: início → previsão de término. */
+.task-time { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 4px 12px; font-size: 13px; color: var(--muted); }
+.tt-item { display: flex; flex-direction: column; line-height: 1.2; }
+.tt-label { font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
+.tt-item b { font-size: 17px; color: var(--text); }
+.tt-arrow { font-size: 16px; padding-bottom: 1px; }
+.tt-dur { margin-left: auto; padding-bottom: 2px; }
+.tt-none { font-weight: 600; }
+.card-sep { border: 0; border-top: 1px solid var(--border); margin: 8px 0 10px; }
 
 .tag {
   display: inline-block;
@@ -250,6 +270,28 @@ nav button.on { color: var(--accent); font-weight: 600; box-shadow: inset 0 2px 
 }
 .card.selected { outline: 2px solid var(--accent); }
 .ghost { position: fixed; z-index: 30; pointer-events: none; opacity: .92; box-shadow: 0 8px 24px rgba(0, 0, 0, .3); max-width: 260px; margin: 0; }
+
+/* Agenda à esquerda + tarefa em andamento fixa à direita (no celular, no topo). */
+main.wide { max-width: 1180px; }
+.agenda-layout { display: flex; flex-direction: column; }
+.agenda-side { order: -1; }
+.agenda-side.side-empty { display: none; }
+.running-detail { padding: 16px; cursor: pointer; }
+.running-detail:hover { box-shadow: 0 0 0 4px color-mix(in srgb, var(--prio) 28%, transparent); }
+.card.flash { animation: card-flash 1.6s ease-out; }
+@keyframes card-flash {
+  0%, 40% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--prio, var(--accent)) 55%, transparent); }
+  100% { box-shadow: var(--shadow); }
+}
+.running-detail .task-time .tt-item b { font-size: 22px; }
+.detail-title { font-size: 20px; margin: 0; }
+.detail-desc { margin: 8px 0 0; }
+.progress { height: 8px; border-radius: 99px; background: var(--accent-soft); overflow: hidden; margin: 12px 0 6px; }
+.progress span { display: block; height: 100%; background: var(--prio); transition: width .3s; }
+.detail-list { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 14px 0; font-size: 14px; }
+.detail-list dt { color: var(--muted); }
+.detail-list dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.detail-history { max-height: 220px; overflow: auto; }
 
 /* ---------- Modal ---------- */
 .modal {
@@ -412,6 +454,21 @@ nav button.on { color: var(--accent); font-weight: 600; box-shadow: inset 0 2px 
 .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-left: 6px; }
 .tag .status-dot { margin: 0 6px 0 0; }
 
+/* ---------- Log do aparelho ---------- */
+.log-head { margin: 10px 0 4px; }
+.log-head label { margin: 0; }
+.log-row {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+.log-row:last-child { border-bottom: 0; }
+.log-when { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.log-body { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+
 /* ---------- Organização dos aparelhos (grupos e arrasto) ---------- */
 .dev-board { padding-bottom: 48px; border-radius: 18px; }
 .device-grid.loose { margin-bottom: 14px; }
@@ -458,5 +515,15 @@ nav button.on { color: var(--accent); font-weight: 600; box-shadow: inset 0 2px 
   }
   nav button { flex: 0 0 120px; }
   #pops { bottom: 92px; }
+  .agenda-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); gap: 20px; align-items: start; }
+  .agenda-side, .agenda-side.side-empty {
+    display: block;
+    order: 0;
+    position: sticky;
+    top: calc(104px + var(--safe-top));
+    max-height: calc(100vh - 120px - var(--safe-top));
+    overflow: auto;
+  }
+  .agenda-side > h2:first-child { margin-top: 0; }
   .fab { bottom: 24px; }
 }

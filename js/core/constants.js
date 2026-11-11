@@ -36,9 +36,10 @@ const SLOT_STEP = 30;
 
 const WEEKDAYS_SHORT = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
-const DEVICE_STATUSES = ['Operacional', 'Em manutenção', 'Fora de uso'];
+const DEVICE_STATUSES = ['Operacional', 'Inoperante', 'Em manutenção', 'Fora de uso'];
 const DEVICE_STATUS_STYLE = {
   'Operacional': { color: '#22c55e', label: 'operacional' },
+  'Inoperante': { color: '#ef4444', label: 'inoperante' },
   'Em manutenção': { color: '#f59e0b', label: 'em manutenção' },
   'Fora de uso': { color: '#ef4444', label: 'fora de uso' },
 };

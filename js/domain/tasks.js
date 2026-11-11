@@ -38,18 +38,18 @@ async function requeue(task, reason) {
 const scheduledOverlapping = (emp, exceptId, s, e) => allTasks().filter((o) =>
   o.emp === emp && o.id !== exceptId && o.status === 'agendada' && o.start < e && taskEnd(o) > s);
 
-/** Tenta encaixar as pendentes do funcionário (por prioridade) nos horários livres. */
+/**
+ * Encaixa as pendentes do funcionário (mais urgentes primeiro), seguindo a mesma regra do
+ * aceite: passam na frente das agendadas de urgência menor (ver placeByPriority).
+ */
 async function scheduleWaiting(emp) {
-  const busy = busyIntervals(emp);
   const waiting = allTasks()
     .filter((t) => t.emp === emp && t.status === 'pendente' && t.dur)
     .sort(byPriority((t) => t.created));
   for (const t of waiting) {
-    const s = nextSlotFor(t, busy);
-    if (!s) continue;
-    busy.push({ s, e: s + t.dur * MIN });
-    await commitTask(t.id, { status: 'agendada', start: s, initial: t.initial || s }, 'Agendada para ' + fmtDayTime(s));
-    notify(t.req, 'Tarefa ' + quote(t) + ' agendada: ' + fmtDayTime(s));
+    if (state.tasks[t.id]?.status !== 'pendente') continue; // pode ter mudado no meio do laço
+    await placeByPriority(state.tasks[t.id], (s) => 'Agendada para ' + fmtDayTime(s),
+      (s) => 'Tarefa ' + quote(t) + ' agendada: ' + fmtDayTime(s));
   }
 }
 
@@ -58,6 +58,7 @@ async function scheduleWaiting(emp) {
  * @param {{title, desc, prio, emps: string[], link: object, want?: number}} form
  */
 async function createTasks(form) {
+  const device = form.link?.dev ? state.devices[form.link.dev] : null;
   for (const emp of form.emps) {
     const ref = newDoc('tasks');
     const now = Date.now();
@@ -76,24 +77,119 @@ async function createTasks(form) {
       start: null,
       initial: null,
       hist: [{ t: now, x: 'Tarefa criada' }, { t: now, x: 'Enviada ao funcionário para aceite' }],
+      ...(device ? { devPrev: device.status || 'Operacional' } : {}),
     });
     notify(emp, 'Nova tarefa ' + PRIORITY_LABEL[form.prio].toLowerCase() + ' para aceitar: ' + quote(form));
   }
+  if (device) {
+    // Fica inoperante até o funcionário iniciar (se já houver outra em execução, segue em manutenção).
+    const started = allTasks().some((o) => o.dev === device.id && STARTED.includes(o.status));
+    await setDeviceStatus(device.id, started ? MAINTENANCE : INOPERATIVE, 'tarefa ' + quote(form) + ' aberta por ' + nameOf(state.uid));
+  }
+}
+
+// ---------- Status do aparelho vinculado ----------
+// Aberta (aguardando/pendente/agendada) → Inoperante; iniciada (andamento/pausada) → Em manutenção;
+// encerrada → Operacional (concluída) ou status anterior (cancelada/recusada).
+const INOPERATIVE = 'Inoperante';
+const MAINTENANCE = 'Em manutenção';
+/** Status que o sistema muda sozinho; os demais só mudam à mão ou ao abrir/iniciar uma tarefa. */
+const AUTO_DEVICE_STATUSES = [INOPERATIVE, MAINTENANCE];
+const STARTED = ['andamento', 'pausada'];
+
+/** Status pedido pelas tarefas ainda abertas do aparelho (null se não houver nenhuma). */
+function statusFromOpenTasks(devId) {
+  const open = allTasks().filter((o) => o.dev === devId && !FINISHED.includes(o.status));
+  if (!open.length) return null;
+  return open.some((o) => STARTED.includes(o.status)) ? MAINTENANCE : INOPERATIVE;
+}
+
+/** Funcionário iniciou a tarefa: o aparelho passa a "Em manutenção". */
+async function markDeviceStarted(t) {
+  if (t.dev) await setDeviceStatus(t.dev, MAINTENANCE, 'tarefa ' + quote(t) + ' iniciada por ' + nameOf(t.emp));
+}
+
+/** Muda o status do aparelho (se for diferente) e registra no log. */
+async function setDeviceStatus(id, status, reason) {
+  const d = state.devices[id];
+  if (!d || d.status === status) return;
+  await addDeviceLog(id, 'Status: ' + (d.status || 'Operacional') + ' → ' + status + ' (' + reason + ')', { status });
+}
+
+/**
+ * Ao encerrar uma tarefa de manutenção (se o status ainda for automático):
+ * - com outras tarefas abertas para o aparelho, segue o que elas pedem;
+ * - sem nenhuma, volta para Operacional (concluída) ou para o status anterior (cancelada/recusada).
+ * Um status mudado manualmente (ex.: "Fora de uso") é respeitado.
+ */
+async function releaseDevice(t, action) {
+  const d = state.devices[t.dev];
+  if (!d || !AUTO_DEVICE_STATUSES.includes(d.status)) return;
+  const pending = statusFromOpenTasks(t.dev);
+  if (pending) return setDeviceStatus(t.dev, pending, 'outra tarefa aberta para o aparelho');
+  const back = action === 'concluir' ? 'Operacional' : (t.devPrev || 'Operacional');
+  await setDeviceStatus(t.dev, back, action === 'concluir' ? 'manutenção concluída' : 'tarefa ' + quote(t) + ' ' + (action === 'recusar' ? 'recusada' : 'cancelada'));
 }
 
 const hasRunningTask = (task) =>
   allTasks().some((o) => o.emp === task.emp && o.id !== task.id && o.status === 'andamento');
 
 /** Aceite com agendamento automático no primeiro horário livre. */
+/**
+ * Aceite com agendamento automático, respeitando a urgência:
+ * a tarefa ocupa o primeiro horário livre considerando só as tarefas iniciadas e as
+ * agendadas de urgência igual ou maior; as agendadas de urgência menor que ficarem
+ * no caminho são empurradas para depois (ver pushBackLowerPriority).
+ */
 async function acceptTask(t) {
   if (!t.dur) return say('Defina a duração antes.');
-  const s = nextSlotFor(t, busyIntervals(t.emp, t.id));
-  if (s) {
-    await commitTask(t.id, { status: 'agendada', start: s, initial: s }, 'Aceita e agendada para ' + fmtDayTime(s));
-    notify(t.req, 'Tarefa ' + quote(t) + ' aceita e agendada: ' + fmtDayTime(s));
-  } else {
+  const placed = await placeByPriority(t, (s) => 'Aceita e agendada para ' + fmtDayTime(s),
+    (s) => 'Tarefa ' + quote(t) + ' aceita e agendada: ' + fmtDayTime(s));
+  if (!placed) {
     await commitTask(t.id, { status: 'pendente' }, 'Aceita, sem horário livre nesta semana');
     notify(t.req, 'Tarefa ' + quote(t) + ' aceita, mas sem horário livre nesta semana — pendente');
+  }
+}
+
+/**
+ * Agenda `t` no primeiro horário livre considerando só as tarefas iniciadas e as agendadas de
+ * urgência igual ou maior; as agendadas de urgência menor que ficarem no caminho são empurradas
+ * para depois. Devolve false se não houver horário na semana.
+ */
+async function placeByPriority(t, histText, noteText) {
+  const rank = PRIORITY_ORDER[t.prio];
+  const isLower = (o) => o.status === 'agendada' && PRIORITY_ORDER[o.prio] > rank;
+  const fixed = allTasks()
+    .filter((o) => o.emp === t.emp && o.id !== t.id && o.start && OCCUPYING.includes(o.status) && !isLower(o))
+    .map((o) => ({ s: o.start, e: taskEnd(o) }));
+  const s = nextSlotFor(t, fixed);
+  if (!s) return false;
+  await commitTask(t.id, { status: 'agendada', start: s, initial: t.initial || s }, histText(s));
+  notify(t.req, noteText(s));
+  const displaced = allTasks().filter((o) => o.emp === t.emp && o.id !== t.id && isLower(o) && taskEnd(o) > s);
+  await pushBackLowerPriority(t, displaced, [...fixed, { s, e: s + t.dur * MIN }]);
+  return true;
+}
+
+/**
+ * Reencaixa as tarefas de urgência menor que estão depois de `urgent`, na ordem em que estavam:
+ * cada uma fica no primeiro horário livre a partir do seu horário atual (as que não colidem não mudam).
+ */
+async function pushBackLowerPriority(urgent, displaced, busy) {
+  for (const o of displaced.sort((a, b) => a.start - b.start)) {
+    if (!busy.some((b) => o.start < b.e && taskEnd(o) > b.s)) {
+      busy.push({ s: o.start, e: taskEnd(o) }); // não colide: fica onde está
+      continue;
+    }
+    const s = findSlot(profileOf(o.emp), busy, o.dur, Math.max(Date.now(), o.want || 0, o.start));
+    if (s) {
+      busy.push({ s, e: s + o.dur * MIN });
+      await commitTask(o.id, { status: 'agendada', start: s, initial: o.initial || o.start },
+        'Reorganizada por prioridade (' + quote(urgent) + ' é mais urgente): ' + fmtDayTime(s));
+      notify(o.req, 'Tarefa ' + quote(o) + ' reagendada por prioridade: ' + fmtDayTime(s));
+    } else {
+      await requeue(o, 'tarefa mais urgente ocupou o horário');
+    }
   }
 }
 
@@ -107,6 +203,7 @@ async function startEarly(t) {
   for (const o of scheduledOverlapping(t.emp, t.id, now, end)) await requeue(o, 'outra tarefa foi iniciada antes');
   await commitTask(t.id, { status: 'andamento', start: now, startedAt: now, initial: t.initial || t.start },
     'Iniciada antes do previsto (' + fmtTime(now) + '; previsto ' + fmtTime(t.start) + ')');
+  await markDeviceStarted(t);
   notify(t.req, 'Tarefa ' + quote(t) + ' iniciada');
   await scheduleWaiting(t.emp);
 }
@@ -163,11 +260,13 @@ async function taskAction(id, action, summary) {
     await addDeviceLog(t.dev, 'Manutenção concluída: ' + quote(t) + ' (pedida por ' + nameOf(t.req) + ')'
       + (summary ? ' — Relato: ' + summary : ' — sem relato'));
   }
+  if (t.dev && ['concluir', 'cancelar', 'recusar'].includes(action)) await releaseDevice(t, action);
   if (['concluir', 'cancelar', 'recusar'].includes(action)) {
     const extra = action === 'concluir' && summary ? ' — ' + summary.slice(0, 120) : '';
     notify(t.req, 'Tarefa ' + quote(t) + ': ' + label.toLowerCase() + extra);
     await scheduleWaiting(t.emp);
   } else if (action === 'iniciar') {
+    await markDeviceStarted(t);
     notify(t.req, 'Tarefa ' + quote(t) + ' iniciada');
   }
 }

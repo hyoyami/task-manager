@@ -4,12 +4,16 @@
    ========================================================================== */
 'use strict';
 
-/** A aba Equipe mostra disponibilidade "agora": atualiza a cada 30 s. */
+/** Telas que mostram o "agora" (Equipe e tarefa em andamento) são redesenhadas a cada 30 s. */
 const TEAM_REFRESH_MS = 30 * 1000;
 
 async function boot() {
   initEvents();
-  setInterval(() => { if (state.me && ui.tab === 'equipe') render(); }, TEAM_REFRESH_MS);
+  setInterval(() => {
+    if (!state.me) return;
+    // Equipe: disponibilidade "agora"; Agenda: tempo decorrido/restante da tarefa em andamento.
+    if (ui.tab === 'equipe' || (ui.tab === 'agenda' && allTasks().some((t) => t.status === 'andamento'))) render();
+  }, TEAM_REFRESH_MS);
   try {
     const user = await claude.use('user');
     state.db = await claude.use('db');

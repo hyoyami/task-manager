@@ -55,6 +55,7 @@ function render() {
   $('#pnb').innerHTML = viewNotifications();
   $('#mn_b').innerHTML = menuHtml();
   $('#nfab').classList.toggle('show', !isEmployee());
+  $('#app').classList.toggle('wide', ui.tab === 'agenda');
   $('#app').innerHTML = VIEWS[ui.tab][0]();
 }
 

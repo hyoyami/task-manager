@@ -18,6 +18,8 @@ async function onButtonClick(btn) {
 function onElementClick(target) {
   const slot = target.closest('.slot');
   if (slot) return onSlotClick(slot);
+  const pinned = target.closest('[data-goto]');
+  if (pinned) return focusTaskInAgenda(pinned.dataset.goto);
   const info = target.closest('[data-open]');
   if (info) return openTaskInfo(info.dataset.open);
   const tut = target.closest('[data-tut]');

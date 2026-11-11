@@ -300,6 +300,7 @@ const ACTIONS_BY_DATA = {
   // Aparelhos e categorias
   dev: (v) => openDevice(v),
   rodev: (v) => openDeviceReadOnly(v),
+  fulllog: (v) => openDeviceLog(v),
   lg: addDeviceNote,
   ddel: armDeviceDelete,
   cat: (v) => openCategory(v),

@@ -47,13 +47,13 @@ class Run:
     def wait(self, t=120):
         self.pg.wait_for_timeout(t)
 
-    def shot(self, label, sel="#app"):
+    def shot(self, label, sel="#app", full_page=True):
         self.wait()
         txt = self.pg.inner_text(sel)
         self.shots.append({"label": label, "text": re.sub(r"[ \t]+", " ", txt).strip()})
         if self.shots_dir:
             n = len(self.shots)
-            self.pg.screenshot(path=str(self.shots_dir / f"{n:02d}-{label}.png"), full_page=True, animations="disabled")
+            self.pg.screenshot(path=str(self.shots_dir / f"{n:02d}-{label}.png"), full_page=full_page, animations="disabled")
         return txt
 
     def click(self, sel):
@@ -150,7 +150,7 @@ def main():
         r.shot("ws-lista")
         dev_id = pg.get_attribute("[data-dev]", "data-dev")
         r.click(f'[data-dev="{dev_id}"]')
-        pg.select_option(".dv_st", "Em manutenção")
+        pg.select_option(".dv_st", "Fora de uso")
         r.wait()
         pg.fill("#dv_t", "Troca de toner")
         r.click(f'[data-lg="{dev_id}"]')
@@ -235,6 +235,10 @@ def main():
         r.shot("nova-com-aparelho", "#mdb")
         r.click('[data-pk="Limpeza"]')
         r.click("#f_go")
+        # O aparelho vinculado fica inoperante até o funcionário iniciar (visível na aba Aparelhos).
+        assert device_status(r, dev_id) == "Inoperante"
+        r.tab("aparelhos")
+        assert "status: inoperante" in pg.inner_text(f'.device-card[data-did="{dev_id}"]')
         # Terceira tarefa, que será cancelada pelo solicitante
         r.click("#nfab")
         pg.fill("#f_t", "Trocar mouse")
@@ -281,8 +285,13 @@ def main():
         r.click(f'[data-a="concluir"][data-i="{office}"]')
         pg.fill("#dn_t", "Instalado e ativado.")
         r.click("#dn_ok")
+        assert device_status(r, dev_id) == "Inoperante"  # agendada, ainda não iniciada
         # executa Limpeza antes do horário (puxa para agora)
         r.click(f'[data-a="iniciar"][data-i="{limpeza}"]')
+        assert device_status(r, dev_id) == "Em manutenção"
+        r.click(f'[data-a="pausar"][data-i="{limpeza}"]')
+        assert device_status(r, dev_id) == "Em manutenção"  # pausada continua em manutenção
+        r.click(f'[data-a="retomar"][data-i="{limpeza}"]')
         r.click(f'[data-h="{limpeza}"]')
         r.shot("ana-agenda-andamento")
         r.click(f'[data-a="concluir"][data-i="{limpeza}"]')
@@ -297,6 +306,21 @@ def main():
         r.tab("workstation")
         r.click(f'[data-dev="{dev_id}"]')
         r.shot("dev-log-final", "#mdb")
+        log = pg.inner_text("#mdb")
+        assert "Fora de uso → Inoperante (tarefa “Manutenção: Limpeza” aberta por Bruno)" in log, log
+        assert "Inoperante → Em manutenção (tarefa “Manutenção: Limpeza” iniciada por Ana Souza)" in log, log
+        assert "Em manutenção → Operacional (manutenção concluída)" in log, log
+        assert device_status(r, dev_id) == "Operacional"
+        # Log resumido (5 últimos) e "+log" com o histórico completo.
+        preview = [l for l in pg.inner_text("#mdb .history.log").split("\n") if l.strip()]
+        assert len(preview) == 5 and preview[0].endswith("Operacional (manutenção concluída)"), preview
+        assert "(5 de 7)" in pg.inner_text("#mdb .log-head")
+        r.click(f'[data-fulllog="{dev_id}"]')
+        assert pg.locator("#mdb .log-row").count() == 7
+        assert pg.inner_text("#mdb .log-row >> nth=-1").count("Cadastro") == 1  # mais antigo por último
+        r.shot("log-completo", "#mdb")
+        r.click(f'#mdb [data-dev="{dev_id}"]')  # voltar ao aparelho
+        assert pg.locator("#mdb .dv_st").count() == 1
         r.click("#dn_no")
         # notificações
         r.click("#bell")
@@ -333,13 +357,107 @@ def main():
 
         extra_flows(r)
         assert not r.errors, r.errors
-        print(f"OK: {len(r.shots)} telas verificadas, sem erros de JavaScript.")
+        n = priority_flow(b, shots_dir)
+        print(f"OK: {len(r.shots) + n} telas verificadas, sem erros de JavaScript.")
         b.close()
 
 
 # PNG 1×1 válido, usado como ícone de categoria.
 PNG_1PX = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+
+
+def priority_flow(browser, shots_dir):
+    """Aceite respeita a urgência: a mais urgente entra na frente das menos urgentes já agendadas."""
+    ctx = browser.new_context(viewport={"width": 420, "height": 900}, timezone_id="America/Sao_Paulo", locale="pt-BR")
+    pg = ctx.new_page()
+    pg.clock.set_fixed_time(NOW)
+    r = Run(pg, shots_dir / "prioridade" if shots_dir else None)
+    if r.shots_dir:
+        r.shots_dir.mkdir(exist_ok=True)
+    pg.goto(INDEX)
+    r.signup("Carla", "carla@teste.com", "func")
+    r.logout()
+    r.signup("Davi", "davi@teste.com", "sol")
+    for title, prio in [("Em curso", "neutra"), ("Baixa 1", "baixa"), ("Neutra 1", "neutra"), ("Urgente", "alta")]:
+        r.click("#nfab")
+        pg.fill("#f_t", title)
+        pg.fill("#f_d", "Teste de prioridade")
+        pg.check(".f_e")
+        pg.select_option("#f_p", prio)
+        r.click("#f_go")
+    r.logout()
+    r.login("carla@teste.com")
+
+    def task(title):
+        db = json.loads(pg.evaluate("localStorage.getItem('tm_db_v1')"))
+        return next(v for k, v in db.items() if k.startswith("tasks/") and v["title"] == title)
+
+    def accept(title, minutes):
+        tid = task(title)["id"]
+        assert pg.inner_text(f'.strip [data-a="aceitar"][data-i="{tid}"]') == "Aceitar"
+        pg.select_option(f'.dsel[data-i="{tid}"]', str(minutes))
+        r.wait()
+        r.click(f'.strip [data-a="aceitar"][data-i="{tid}"]')
+        return tid
+
+    starts = lambda *ts: [task(t)["start"] for t in ts]
+    running = accept("Em curso", 30)
+    r.click(f'[data-a="iniciar"][data-i="{running}"]')
+    assert task("Em curso")["status"] == "andamento"
+    accept("Baixa 1", 30)
+    assert starts("Baixa 1") == [ms(9, 30)]
+    accept("Neutra 1", 60)                     # neutra passa na frente da baixa
+    assert starts("Neutra 1", "Baixa 1") == [ms(9, 30), ms(10, 30)], starts("Neutra 1", "Baixa 1")
+    accept("Urgente", 30)                      # alta passa na frente de todas, sem mexer na em andamento
+    assert starts("Em curso", "Urgente", "Neutra 1", "Baixa 1") == [ms(9), ms(9, 30), ms(10), ms(11)], \
+        starts("Em curso", "Urgente", "Neutra 1", "Baixa 1")
+    assert any("Reorganizada por prioridade" in h["x"] for h in task("Baixa 1")["hist"])
+    r.shot("agenda-por-prioridade")
+    # Cartão em andamento: borda da prioridade e previsão de término que acompanha o +15 min.
+    assert pg.locator(".card.running").count() >= 1
+    assert pg.locator(".card.running").first.get_attribute("data-tid") == running
+    header = lambda: pg.inner_text(f'.card.running[data-tid="{running}"] .task-time')
+    assert "09:30" in header(), header()
+    r.click(f'[data-d="15"][data-i="{running}"]')
+    assert "09:45" in header() and "45 min" in header(), header()
+    # A urgente que colidiu volta logo depois, ainda na frente das menos urgentes.
+    assert starts("Urgente", "Neutra 1", "Baixa 1") == [ms(9, 45), ms(10, 15), ms(11, 15)], \
+        starts("Urgente", "Neutra 1", "Baixa 1")
+    assert pg.locator('.strip .task-time:has-text("Horário a definir")').count() == 0  # nada pendente
+    # Painel detalhado da tarefa em andamento (no celular, no topo; no computador, fixo à direita).
+    detail = f'.agenda-side .running-detail[data-tid="{running}"]'
+    assert pg.locator(detail).count() == 1
+    text = pg.inner_text(detail)
+    for part in ("Em execução há", "Faltam 45 min", "Solicitante", "Davi", "Duração prevista", "Histórico"):
+        assert part in text, (part, text)
+    pg.set_viewport_size({"width": 1280, "height": 900})
+    r.wait()
+    main_box = pg.locator(".agenda-main").bounding_box()
+    side_box = pg.locator(".agenda-side").bounding_box()
+    assert side_box["x"] > main_box["x"] + main_box["width"] - 1, (main_box, side_box)  # lado a lado
+    pg.mouse.wheel(0, 900)
+    r.wait(200)
+    assert pg.locator(".agenda-side").bounding_box()["y"] >= 90  # continua fixo ao rolar
+    r.shot("desktop-em-andamento", full_page=False)
+    # Clicar no cartão fixo leva até a tarefa na agenda e a destaca.
+    pg.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+    r.wait(200)
+    target = f'.agenda-main [data-tid="{running}"]'
+    assert pg.evaluate(f"document.querySelector('{target}').getBoundingClientRect().top") < 0  # fora da tela
+    pg.click(".agenda-side .running-detail .detail-title")
+    r.wait(900)
+    top = pg.evaluate(f"document.querySelector('{target}').getBoundingClientRect().top")
+    assert 90 <= top <= 900, top
+    assert "flash" in pg.get_attribute(target, "class")
+    pg.set_viewport_size({"width": 420, "height": 900})
+    assert not r.errors, r.errors
+    ctx.close()
+    return len(r.shots)
+
+
+def device_status(r, did):
+    return r.pg.evaluate(f"JSON.parse(localStorage.getItem('tm_db_v1'))['devices/{did}'].status")
 
 
 def toast(r):
@@ -551,6 +669,22 @@ def extra_flows(r):
     assert layout(r) == ana_layout  # organização da funcionária não muda
     pg.set_viewport_size({"width": 420, "height": 900})
     r.shot("aparelhos-solicitante")
+
+    # Manutenção cancelada: o aparelho volta ao status anterior.
+    pc_card = f'.device-card[data-did="{pc}"]'
+    assert device_status(r, pc) == "Operacional"
+    r.click("#nfab")
+    pg.select_option("#f_v", pc)
+    pg.fill("#f_t", "Teclado falhando")
+    pg.fill("#f_d", "Teclas não respondem")
+    r.click("#f_go")
+    assert device_status(r, pc) == "Inoperante"
+    assert "status: inoperante" in pg.inner_text(pc_card)
+    r.tab("tarefas")
+    r.click('[data-tf="ativas"]')
+    tid = pg.eval_on_selector_all("[data-tid]", "e => e.find(x => x.textContent.includes('Teclado')).dataset.tid")
+    r.click(f'[data-a="cancelar"][data-i="{tid}"]')
+    assert device_status(r, pc) == "Operacional"
 
     # Tema escuro e layout de desktop (capturas para revisão visual).
     r.menu("perfil")

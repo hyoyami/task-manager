@@ -97,7 +97,6 @@ function viewAgenda() {
   }
 
   const running = tasksOf(['andamento', 'pausada']).filter((t) => canControl || t.req === state.uid);
-  if (running.length) h += '<h2>Em andamento</h2>' + each(running, (t) => taskCard(t, { canControl }));
 
   if (ui.proposal) h += proposalCard();
 
@@ -111,5 +110,76 @@ function viewAgenda() {
     const mine = tasksOf(UNSCHEDULED).filter((t) => t.req === state.uid);
     if (mine.length) h += '<h2>Aguardando aceite e pendentes</h2>' + each(mine, (t) => taskCard(t));
   }
-  return h;
+  // Agenda à esquerda; tarefa em andamento fixa à direita (no celular, no topo).
+  return '<div class="agenda-layout"><section class="agenda-main">' + h + '</section>'
+    + '<aside class="agenda-side' + when(!running.length, ' side-empty') + '">' + runningPanel(running, canControl) + '</aside></div>';
+}
+
+// ---------- Painel da tarefa em andamento ----------
+/** "1 h 05 min" / "12 min". */
+function fmtDuration(ms) {
+  const total = Math.max(0, Math.round(ms / MIN));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return h ? h + ' h ' + String(m).padStart(2, '0') + ' min' : m + ' min';
+}
+
+function runningPanel(running, canControl) {
+  const active = running.filter((t) => t.status === 'andamento');
+  const paused = running.filter((t) => t.status === 'pausada');
+  return '<h2>Em andamento</h2>'
+    + (each(active, (t) => runningDetail(t, canControl)) || emptyCard('Nenhuma tarefa em andamento no momento.'))
+    + when(paused.length, '<h2>Pausadas</h2>' + each(paused, (t) => taskCard(t, { canControl })));
+}
+
+/** Cartão grande e detalhado da tarefa em execução (progresso, prazos, dados e histórico). */
+function runningDetail(t, canControl) {
+  const now = Date.now();
+  const end = taskEnd(t);
+  const pct = Math.max(0, Math.min(100, Math.round(((now - t.start) / (end - t.start)) * 100)));
+  const late = now > end;
+  const device = t.dev ? state.devices[t.dev] : null;
+  const item = (label, value) => '<dt>' + label + '</dt><dd>' + value + '</dd>';
+  const moved = t.initial && t.initial !== t.start;
+
+  return '<div class="card prio-' + t.prio + ' running running-detail" data-tid="' + t.id + '" data-goto="' + t.id + '"'
+    + ' title="Ir para a tarefa na agenda">'
+    + taskTimeHeader(t)
+    + '<div class="progress" role="progressbar" aria-valuenow="' + pct + '" aria-valuemin="0" aria-valuemax="100"><span style="width:' + pct + '%"></span></div>'
+    + '<div class="row between muted"><span>Em execução há ' + fmtDuration(now - (t.startedAt || t.start)) + '</span>'
+    + '<span class="' + when(late, 'error') + '">' + (late ? 'Atrasada ' + fmtDuration(now - end) : 'Faltam ' + fmtDuration(end - now)) + '</span></div>'
+    + '<hr class="card-sep">'
+    + '<div class="row between"><h3 class="detail-title">' + esc(t.title) + '</h3><span>' + statusTags(t) + '</span></div>'
+    + when(t.desc, '<p class="detail-desc pre-wrap">' + esc(t.desc) + '</p>')
+    + '<dl class="detail-list">'
+    + item('Solicitante', esc(nameOf(t.req)))
+    + item('Responsável', esc(nameOf(t.emp)))
+    + item('Data', fmtDay(t.start))
+    + item('Duração prevista', t.dur + ' min' + when(t.planDur && t.planDur !== t.dur, ' (planejado ' + t.planDur + ' min)'))
+    + when(moved, item('Horário original', fmtDayTime(t.initial)))
+    + when(device || t.devName, item('Aparelho', esc(device?.name || t.devName) + when(t.devArea, ' (' + esc(t.devArea) + ')')
+      + when(t.devIp, ' · IP ' + esc(t.devIp)) + when(device, ' · ' + esc(device?.status || ''))))
+    + when(t.preset, item('Problema', esc(t.preset)))
+    + item('Criada em', fmtDateTime(t.created))
+    + '</dl>'
+    + '<div class="row actions">' + taskButtons(t, canControl, { withHistory: false }) + '</div>'
+    + '<label>Histórico</label><div class="history flat detail-history">' + historyLines((t.hist || []).slice().reverse()) + '</div>'
+    + '</div>';
+}
+
+/** Leva até o cartão da tarefa na agenda (troca o dia, se preciso) e destaca por um instante. */
+function focusTaskInAgenda(id) {
+  const t = state.tasks[id];
+  if (!t?.start) return;
+  const day = startOfDay(t.start);
+  if (ui.agendaDay !== day) {
+    ui.agendaDay = day;
+    render();
+  }
+  const el = $('.agenda-main [data-tid="' + id + '"]');
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el.classList.remove('flash');
+  void el.offsetWidth; // reinicia a animação se clicar de novo
+  el.classList.add('flash');
 }

@@ -48,9 +48,9 @@ Testes: `pip install playwright && playwright install chromium`, depois
   `ws.probs[categoria]` = lista de problemas de manutenção (senão usa `PRESETS`).
   Perfis antigos podem ter `ws.areas` no lugar de `ws.cats` (tratado por `savedCategories()`).
 - `tasks/<id>` — `{title,desc,prio:'alta|neutra|baixa',dur,emp,req,status,start,initial,hist[],summary,
-  dev,devName,devArea,devIp,preset,tipo:'manutencao'}`.
+  dev,devName,devArea,devIp,devPrev,preset,tipo:'manutencao'}`. `devPrev` = status do aparelho antes da tarefa.
   Status: `aguardando` → `pendente`/`agendada` → `andamento` ⇄ `pausada` → `concluida` | `cancelada`.
-- `devices/<id>` — `{owner,name,ip,area,status:'Operacional|Em manutenção|Fora de uso',log[],created}`.
+- `devices/<id>` — `{owner,name,ip,area,status:'Operacional|Inoperante|Em manutenção|Fora de uso',log[],created}`.
 - `notifs/<id>` — `{to,txt,at}`.
 - `tutorials/<id>` — um documento por passo: `{cat,prob,order,img(dataURL),txt,by}`.
 - localStorage (fora do banco): `theme`, `aid` (sessão; também em sessionStorage), `accts` (contas salvas).
@@ -62,9 +62,23 @@ Testes: `pip install playwright && playwright install chromium`, depois
   (arrastando o cartão para um horário livre, tocando no cartão e depois no horário, ou botão "Auto").
 - Agenda limitada à **semana corrente dentro do mês** (`currentWeek()`); `findSlot()` respeita jornada,
   intervalo, folgas (`off`), folga semanal (`wk`) e tarefas já marcadas.
+- Todo encaixe automático segue a urgência (`placeByPriority()`): ao aceitar (botão "Aceitar") e ao reencaixar
+  pendentes (`scheduleWaiting()`, ex.: após +15 min, início antecipado, folgas), a tarefa ignora as agendadas
+  de urgência menor e ocupa o primeiro horário livre; essas são empurradas para depois, na mesma ordem
+  (`pushBackLowerPriority()`). Tarefas iniciadas e as de urgência igual/maior não se mexem (FIFO entre iguais).
+  Arrastar para um horário é escolha manual e não reorganiza nada.
+- Agenda: em telas ≥ 900px, agenda à esquerda e painel "Em andamento" fixo à direita (cartão detalhado com
+  progresso, tempo decorrido/restante, dados e histórico; atualiza a cada 30 s). No celular o painel fica no topo.
+  Clicar no cartão fixo (fora dos botões) rola até a tarefa na agenda e a destaca (`focusTaskInAgenda()`).
+  Cartões de tarefa: início → previsão de término no topo, linha, título; só a tarefa em andamento tem a borda
+  inteira na cor da prioridade (`.card.running`).
 - Uma tarefa em andamento por vez (por funcionário). Iniciar antes do horário puxa a tarefa para agora;
   concluir antes do previsto encurta a duração e libera o horário.
 - Tarefa vinculada a aparelho vira "Manutenção"; o relato da conclusão vai para o log do aparelho.
+  Status do aparelho (tudo registrado no log): tarefa criada → "Inoperante" (vermelho) até o funcionário iniciar;
+  iniciada (andamento/pausada) → "Em manutenção" (amarelo); ao encerrar, se o status ainda for automático
+  (Inoperante/Em manutenção): com outra tarefa aberta, segue o que ela pede; sem nenhuma, concluída → "Operacional",
+  cancelada/recusada → volta ao `devPrev`. Ver `js/domain/tasks.js` (seção "Status do aparelho vinculado").
 - O funcionário define o horário de trabalho (entrada, saída e almoço) em Menu → "Horário de trabalho e folgas"
   (validação: entrada < almoço início < almoço fim < saída).
 - Folga nova (semanal ou pontual) ou mudança no horário de trabalho devolve para "pendente" as tarefas
