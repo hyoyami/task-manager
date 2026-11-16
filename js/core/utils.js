@@ -67,6 +67,10 @@ const initial = (name) => (String(name || '?').trim().charAt(0).toUpperCase() ||
 
 // ---------- Validação ----------
 const isValidEmail = (s) => /^\S+@\S+\.\S+$/.test(s);
+/** Nome de usuário: sem diferença de maiúsculas, 1–30 caracteres entre letras, números, ponto, hífen e sublinhado. */
+const normalizeUsername = (s) => String(s || '').trim().toLowerCase();
+const isValidUsername = (s) => /^[a-z0-9._-]{1,30}$/.test(s);
+const USERNAME_RULE = 'Nome de usuário: até 30 caracteres, só letras, números, ponto, hífen ou sublinhado.';
 const isValidIp = (s) => /^\d{1,3}(\.\d{1,3}){3}$/.test(s) && s.split('.').every((x) => +x <= 255);
 
 // ---------- Armazenamento do navegador (pode falhar em modo privado) ----------

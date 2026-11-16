@@ -77,6 +77,10 @@ alter table public.devices   add column if not exists company text generated alw
 alter table public.notifs    add column if not exists company text generated always as (data->>'company') stored;
 alter table public.tutorials add column if not exists company text generated always as (data->>'company') stored;
 
+-- Nome de usuário (login alternativo ao e-mail): único, sem diferença de maiúsculas.
+alter table public.profiles  add column if not exists username text generated always as (lower(data->>'username')) stored;
+create unique index if not exists profiles_username_key on public.profiles (username) where username is not null;
+
 create index if not exists profiles_company_idx  on public.profiles (company);
 create index if not exists tasks_company_idx     on public.tasks (company);
 create index if not exists tasks_emp_idx         on public.tasks (emp);
@@ -221,6 +225,20 @@ drop trigger if exists profiles_guard on public.profiles;
 create trigger profiles_guard before insert or update on public.profiles
   for each row execute function public.guard_profile();
 
+-- Nome de usuário livre? (usado no cadastro, antes de existir sessão)
+create or replace function public.username_available(uname text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select not exists (select 1 from public.profiles where username = lower(trim(uname)))
+$$;
+
+-- E-mail do nome de usuário, para entrar com "nome de usuário + senha" (o login do Supabase é por e-mail).
+create or replace function public.email_for_username(uname text) returns text
+language sql stable security definer set search_path = public as $$
+  select data->>'email' from public.profiles where username = lower(trim(uname)) limit 1
+$$;
+
+grant execute on function public.username_available(text) to anon, authenticated;
+grant execute on function public.email_for_username(text) to anon, authenticated;
 grant execute on function public.doc_merge(text, text, jsonb) to authenticated;
 grant execute on function public.join_with_invite(text) to authenticated;
 grant execute on function public.my_company() to authenticated;

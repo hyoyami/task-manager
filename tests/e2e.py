@@ -75,6 +75,7 @@ class Run:
         if not pg.query_selector("#a_n"):
             self.click("#a_mode")
         pg.fill("#a_n", name)
+        pg.fill("#a_u", email.split("@")[0])
         pg.fill("#a_e", email)
         pg.fill("#a_p", "123456")
         pg.check("#a_k")
@@ -572,6 +573,41 @@ def company_flow(browser, shots_dir):
     assert profile("hugo@teste.com")["role"] == "sol"
     r.click(f'[data-mremove="{hugo}"]')
     assert profile("hugo@teste.com")["company"] is None
+    r.logout()
+
+    # Nome de usuário: repetido é recusado (sem diferença de maiúsculas); login pelo nome funciona.
+    pg.wait_for_selector("#a_go")
+    if not pg.query_selector("#a_n"):
+        r.click("#a_mode")
+    pg.fill("#a_n", "Outro Gil")
+    pg.fill("#a_u", "GIL")
+    pg.fill("#a_e", "outro.gil@teste.com")
+    pg.fill("#a_p", "123456")
+    r.click("#a_go")
+    assert pg.inner_text("#a_m") == "Este nome de usuário já está em uso.", pg.inner_text("#a_m")
+    pg.fill("#a_u", "gil@x")
+    r.click("#a_go")
+    assert "Nome de usuário:" in pg.inner_text("#a_m"), pg.inner_text("#a_m")
+    r.click("#a_mode")
+    pg.fill("#a_e", "gil")
+    pg.fill("#a_p", "errada")
+    r.click("#a_go")
+    r.wait(300)
+    assert "incorretos" in pg.inner_text("#a_m"), pg.inner_text("#a_m")
+    r.login("gil")  # entra pelo nome de usuário
+    assert pg.evaluate("state.me.email") == "gil@teste.com"
+    # Troca do nome de usuário nas configurações: repetido é recusado, livre é salvo.
+    r.menu("perfil")
+    pg.fill("#p_u", "hugo")
+    r.click("#p_go")
+    r.wait(200)
+    assert toast(r) == "Este nome de usuário já está em uso.", toast(r)
+    pg.fill("#p_u", "Gil.Admin")
+    r.click("#p_go")
+    r.wait(200)
+    assert profile("gil@teste.com")["username"] == "gil.admin"
+    r.logout()
+    r.login("gil.admin")
     r.logout()
 
     # Outra empresa não enxerga nada da Alfa.

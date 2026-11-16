@@ -95,6 +95,7 @@ class User:
         if not pg.query_selector("#a_n"):
             self.click("#a_mode")
         pg.fill("#a_n", name)
+        pg.fill("#a_u", email.split("@")[0])
         pg.fill("#a_e", email)
         pg.fill("#a_p", PASSWORD)
         pg.check("#a_k")
@@ -240,6 +241,23 @@ def main():
             func.click("#mnb")
             func.click("#a_out")
             func.pg.wait_for_selector("#a_go", timeout=10000)
+
+            # Nome de usuário: repetido é recusado pelo banco; login pelo nome funciona.
+            func_user = FUNC_EMAIL.split("@")[0]
+            func.click("#a_mode")
+            func.pg.fill("#a_n", "Cópia")
+            func.pg.fill("#a_u", func_user.upper())
+            func.pg.fill("#a_e", f"{EMAIL_PREFIX}{STAMP}-copia@example.com")
+            func.pg.fill("#a_p", PASSWORD)
+            func.click("#a_go")
+            func.wait(1500)
+            assert func.pg.inner_text("#a_m") == "Este nome de usuário já está em uso.", func.pg.inner_text("#a_m")
+            func.click("#a_mode")
+            func.pg.fill("#a_e", func_user)
+            func.pg.fill("#a_p", PASSWORD)
+            func.click("#a_go")
+            func.pg.wait_for_selector("nav button", timeout=20000)
+            assert func.pg.evaluate("state.uid") == func_id
 
             errors = admin.errors + func.errors + sol.errors + out.errors
             assert not errors, errors

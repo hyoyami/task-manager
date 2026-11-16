@@ -201,7 +201,7 @@
   /** Mensagens do Supabase Auth → português. */
   function authMessage(error) {
     var m = (error && error.message) || '';
-    if (/invalid login credentials/i.test(m)) return 'E-mail ou senha incorretos.';
+    if (/invalid login credentials/i.test(m)) return 'E-mail/usuário ou senha incorretos.';
     if (/already (been )?registered|already exists/i.test(m)) return 'Este e-mail já está cadastrado.';
     if (/email not confirmed/i.test(m)) return 'Confirme seu e-mail pelo link enviado antes de entrar.';
     if (/rate limit|too many/i.test(m)) return 'Muitas tentativas seguidas. Aguarde alguns minutos.';
@@ -242,8 +242,16 @@
       }
       return r.data.user.id;
     },
-    signIn: async function (email, password, keepConnected) {
+    /** `login` é o e-mail ou o nome de usuário (resolvido para o e-mail pelo banco). */
+    signIn: async function (login, password, keepConnected) {
       setKeep(keepConnected);
+      var email = login;
+      if (login.indexOf('@') < 0) {
+        var found = await sb.rpc('email_for_username', { uname: login });
+        if (found.error) throw new Error(authMessage(found.error));
+        if (!found.data) throw new Error('E-mail/usuário ou senha incorretos.');
+        email = found.data;
+      }
       var r = await sb.auth.signInWithPassword({ email: email, password: password });
       if (r.error) throw new Error(authMessage(r.error));
       return r.data.user.id;

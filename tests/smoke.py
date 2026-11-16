@@ -16,6 +16,7 @@ with sync_playwright() as p:
     pg.wait_for_selector("#a_go")
     pg.click("#a_mode")
     pg.fill("#a_n", "Ana")
+    pg.fill("#a_u", "ana")
     pg.fill("#a_e", "ana@teste.com")
     pg.fill("#a_p", "123456")
     pg.click("#a_go")

@@ -27,28 +27,51 @@ const forgetAccount = (id) => setSavedAccounts(savedAccounts().filter((a) => a.i
 
 // ---------- Entrar / cadastrar / sair ----------
 /** Lê o formulário de login, valida e inicia a sessão. */
+/** O nome de usuário está livre? (`exceptId`: ignora o próprio perfil ao trocar o nome) */
+async function usernameAvailable(username, exceptId) {
+  if (exceptId && normalizeUsername(state.profiles[exceptId]?.username) === username) return true;
+  return state.db.call('username_available', { uname: username });
+}
+
 async function submitAuth() {
-  const email = $('#a_e').value.trim().toLowerCase();
+  const login = $('#a_e').value.trim().toLowerCase(); // no cadastro: e-mail; ao entrar: e-mail ou nome de usuário
   const password = $('#a_p').value;
   const keep = $('#a_k').checked;
   const signup = ui.authMode === 'up';
   const fail = (msg) => { ui.authMsg = msg; $('#a_m').textContent = msg; };
+  const byEmail = login.includes('@');
 
-  if (!isValidEmail(email)) return fail('Informe um e-mail válido.');
+  if (signup || byEmail) {
+    if (!isValidEmail(login)) return fail('Informe um e-mail válido.');
+  } else if (!isValidUsername(login)) {
+    return fail('Informe seu e-mail ou nome de usuário.');
+  }
   if (password.length < 6) return fail('A senha precisa ter ao menos 6 caracteres.');
   const name = signup ? $('#a_n').value.trim() : '';
+  const username = signup ? normalizeUsername($('#a_u').value) : '';
   if (signup && !name) return fail('Informe seu nome.');
+  if (signup && !isValidUsername(username)) return fail(USERNAME_RULE);
 
   let id;
   try {
-    id = signup ? await state.auth.signUp(email, password, keep) : await state.auth.signIn(email, password, keep);
+    if (signup && !(await usernameAvailable(username))) return fail('Este nome de usuário já está em uso.');
+    id = signup ? await state.auth.signUp(login, password, keep) : await state.auth.signIn(login, password, keep);
   } catch (err) {
     return fail(err.message);
   }
 
   // Papel e empresa são definidos depois: criando uma empresa, pedindo entrada ou por convite.
-  if (signup) await doc('profiles/' + id).set({ ...DEFAULT_SCHEDULE, name, role: null, company: null, status: null, seen: 0, ck: id, email });
-  else await doc('profiles/' + id).update({ email }).catch(() => {});
+  if (signup) {
+    try {
+      await doc('profiles/' + id).set({ ...DEFAULT_SCHEDULE, name, username, role: null, company: null, status: null, seen: 0, ck: id, email: login });
+    } catch (err) {
+      // Outra pessoa pegou o mesmo nome entre a checagem e o cadastro (o banco garante que é único).
+      await state.auth.signOut().catch(() => {});
+      return fail(/duplicate|unique|username/i.test(err.message) ? 'Este nome de usuário já está em uso.' : err.message);
+    }
+  } else if (byEmail) {
+    await doc('profiles/' + id).update({ email: login }).catch(() => {});
+  }
   ui.authMsg = '';
   startSession(id);
 }
@@ -186,8 +209,8 @@ function startSession(aid) {
   ui.unsubscribers.push(
     db.collection('profiles').onSnapshot((snap) => {
       raw.profiles = mapOf(snap, true);
-      // Sessão de uma conta que não existe mais neste banco.
-      if (!raw.profiles[state.uid] && snap.docs.length && state.uid) return logout();
+      // Sessão de uma conta que não existe mais neste banco (ex.: conta apagada): volta ao login.
+      if (!raw.profiles[state.uid] && state.uid) return logout();
       // Entrou, saiu ou foi aprovado numa empresa: o que o banco deixa ver mudou → recarrega tudo.
       const me = raw.profiles[state.uid];
       const scopeKey = me ? (me.status || '') + '|' + (me.company || '') : '';

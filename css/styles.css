@@ -211,9 +211,131 @@ button.icon-btn { position: relative; border: 0; background: none; padding: 8px;
   justify-content: space-between;
   z-index: 6;
 }
-#top:empty { display: none; }
+#top:empty, nav:empty { display: none; }
 .brand { letter-spacing: 2px; }
-.brand-login { text-align: center; font-size: 24px; letter-spacing: 3px; margin: 28px 0 16px; }
+.brand-login { text-align: center; font-size: 24px; letter-spacing: 3px; margin: 0 0 20px; }
+
+/* ---------- Tela de entrada (login / cadastro) ----------
+   Papel quadriculado da prancheta com luz difusa; o cartão é vidro fosco por cima,
+   e o quadriculado aparece desfocado através dele. Só tons neutros (Cor-é-Dado). */
+/* .auth-screen: login (sem cabeçalho); .auth-bg: entrada na empresa (com cabeçalho). */
+body.auth-screen { padding-top: var(--safe-top); padding-bottom: var(--safe-bottom); }
+body.auth-screen, body.auth-bg {
+  --grid: color-mix(in srgb, var(--text) 6%, transparent);
+  --glow: color-mix(in srgb, var(--text) 9%, transparent);
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(56rem 38rem at 12% -12%, var(--glow), transparent 62%),
+    radial-gradient(46rem 34rem at 108% 112%, var(--glow), transparent 60%),
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: auto, auto, 28px 28px, 28px 28px;
+  background-position: 0 0, 0 0, -1px -1px, -1px -1px;
+  background-attachment: fixed;
+  caret-color: var(--accent);
+}
+body.auth-screen ::selection, body.auth-bg ::selection { background: var(--accent); color: var(--on-accent); }
+
+.auth {
+  max-width: 400px;
+  min-height: calc(100dvh - 28px - var(--safe-top) - var(--safe-bottom));
+  margin: 0 auto;
+  padding: 24px 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.auth-card, .auth-note {
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  backdrop-filter: blur(18px) saturate(140%);
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  border-radius: 18px;
+  box-shadow: 0 24px 56px -16px rgba(0, 0, 0, .18), 0 2px 6px rgba(0, 0, 0, .04);
+}
+:root[data-theme=dark] body.auth-screen, :root[data-theme=dark] body.auth-bg {
+  --grid: color-mix(in srgb, var(--text) 7%, transparent);
+  --glow: color-mix(in srgb, var(--text) 13%, transparent);
+}
+:root[data-theme=dark] .auth-card, :root[data-theme=dark] .auth-note {
+  background: color-mix(in srgb, var(--surface) 42%, transparent);
+  border-color: color-mix(in srgb, var(--text) 10%, transparent);
+  box-shadow: 0 28px 64px -18px rgba(0, 0, 0, .7), inset 0 1px 0 color-mix(in srgb, var(--text) 6%, transparent);
+}
+.auth-card { padding: 24px 20px 20px; }
+.auth-card + .auth-card { margin-top: 14px; }
+.auth.with-header { min-height: calc(100dvh - 28px - var(--header-h) - 8px - var(--safe-top) - var(--safe-bottom)); }
+.auth-hello { font-size: 22px; margin: 0 0 6px; text-align: center; }
+.auth-lead { margin: 0 0 18px; text-align: center; color: var(--muted); }
+.auth-card .auth-lead { text-align: left; color: var(--text); margin: 8px 0 6px; }
+.auth-note { padding: 14px 16px; margin-bottom: 12px; }
+.auth-note p { margin-top: 4px; }
+
+.auth-title { font-size: 20px; margin: 0 0 6px; letter-spacing: .2px; }
+.auth-card label { margin-top: 14px; }
+.auth-card input[type=text], .auth-card input[type=password], .auth-card select {
+  min-height: 44px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  transition: border-color .15s, background .15s;
+}
+.auth-card input[type=text]:hover, .auth-card input[type=password]:hover, .auth-card select:hover { border-color: color-mix(in srgb, var(--text) 25%, transparent); }
+.auth-card input:focus, .auth-card select:focus { background: var(--surface); }
+.auth-hint { margin: 10px 0 0; }
+label.check.auth-keep { margin: 16px 0 0; font-size: 14px; }
+.auth-keep input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.auth-error { color: var(--danger); font-size: 13px; margin: 12px 0 0; }
+.auth-error:empty { display: none; }
+
+/* Botão grande (ações principais) e botão em forma de link. */
+button.btn-lg {
+  min-height: 46px;
+  padding: 11px 18px;
+  margin-top: 18px;
+  border-radius: 10px;
+  font-weight: 600;
+  letter-spacing: .2px;
+  transition: background .15s, border-color .15s, transform .1s;
+}
+button.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 86%, var(--bg));
+  border-color: color-mix(in srgb, var(--accent) 86%, var(--bg));
+}
+button.btn-lg:active:not(:disabled) { transform: translateY(1px); }
+.auth-card button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+button:disabled { opacity: .65; cursor: progress; }
+
+button.loading { position: relative; color: transparent !important; }
+button.loading::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--on-accent) 35%, transparent);
+  border-top-color: var(--on-accent);
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { button.loading::after { animation-duration: 2s; } }
+
+.auth-switch { margin: 16px 0 0; text-align: center; font-size: 14px; color: var(--muted); }
+button.link {
+  border: 0;
+  background: none;
+  padding: 2px 0;
+  border-radius: 4px;
+  color: var(--text);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--text) 30%, transparent);
+  text-underline-offset: 3px;
+  transition: text-decoration-color .15s;
+}
+button.link:hover { background: none; text-decoration-color: var(--text); }
 
 #av { width: 34px; height: 34px; border-radius: 50%; padding: 0; font-weight: 600; color: #fff; border: 2px solid transparent; }
 #av.on { border-color: var(--accent); }

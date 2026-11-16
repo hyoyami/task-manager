@@ -50,6 +50,8 @@ function render() {
   if (state.me && ui.tab !== 'agenda' && isTypingInMain()) return;
 
   if (!state.me) return renderLoggedOut();
+  document.body.classList.remove('auth-screen');
+  document.body.classList.toggle('auth-bg', !isActiveMember());
 
   $('#top').innerHTML = headerHtml();
   $('#pnb').innerHTML = viewNotifications();
@@ -73,6 +75,8 @@ function render() {
 }
 
 function renderLoggedOut() {
+  document.body.classList.toggle('auth-screen', !state.uid);
+  document.body.classList.remove('auth-bg');
   $('#nav').innerHTML = '';
   $('#top').innerHTML = '';
   $('#nfab').classList.remove('show');

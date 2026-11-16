@@ -24,6 +24,7 @@ function viewAccount() {
   const me = state.me;
   return '<h1>Configurações da conta</h1>' + themeCard()
     + '<div class="card"><b>Dados</b><label>Nome</label><input type="text" id="p_n" value="' + esc(me.name) + '">'
+    + '<label for="p_u">Nome de usuário</label><input type="text" id="p_u" maxlength="30" autocapitalize="none" spellcheck="false" value="' + esc(me.username || '') + '">'
     + '<p><button class="primary" id="p_go">Salvar</button></p></div>'
     + '<div class="card"><b>E-mail</b><div class="muted">' + esc(me.email || '—') + '</div>'
     + '<label>Novo e-mail</label><input type="text" id="em_n" inputmode="email" autocomplete="email">'
@@ -68,16 +69,22 @@ function viewTimeOff() {
 // ---------- Login / cadastro ----------
 function viewLogin() {
   const signup = ui.authMode === 'up';
-  return '<h1 class="brand-login">TASK MANAGER</h1>'
-    + when(pendingInvite(), '<div class="card invite-banner"><b>Você recebeu um convite!</b>'
+  return '<section class="auth">'
+    + '<h1 class="brand-login">TASK MANAGER</h1>'
+    + when(pendingInvite(), '<div class="auth-note"><b>Você recebeu um convite!</b>'
       + '<p class="muted mb-0">Crie sua conta (ou entre) e você já entra na empresa que te convidou.</p></div>')
-    + '<div class="card"><b>' + (signup ? 'Criar conta' : 'Entrar') + '</b>'
-    + when(signup, '<label>Nome</label><input type="text" id="a_n" autocomplete="name">')
-    + '<label>E-mail</label><input type="text" id="a_e" inputmode="email" autocomplete="email">'
-    + '<label>Senha</label><input type="password" id="a_p" autocomplete="' + (signup ? 'new-password' : 'current-password') + '">'
-    + when(signup && !pendingInvite(), '<p class="muted">Depois do cadastro você escolhe a empresa (ou cadastra a sua).</p>')
-    + '<label class="check check-lg"><input type="checkbox" id="a_k">Manter conectado</label>'
-    + '<p class="muted error" id="a_m">' + esc(ui.authMsg) + '</p>'
-    + '<div class="row between"><button class="primary" id="a_go">' + (signup ? 'Cadastrar' : 'Entrar') + '</button>'
-    + '<button class="small" id="a_mode">' + (signup ? 'Já tenho conta' : 'Criar conta') + '</button></div></div>';
+    + '<div class="auth-card">'
+    + '<h2 class="auth-title">' + (signup ? 'Criar conta' : 'Entrar') + '</h2>'
+    + when(signup, '<label for="a_n">Nome</label><input type="text" id="a_n" autocomplete="name">'
+      + '<label for="a_u">Nome de usuário</label><input type="text" id="a_u" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="30" placeholder="ex.: ana.souza">')
+    + '<label for="a_e">' + (signup ? 'E-mail' : 'E-mail ou nome de usuário') + '</label>'
+    + '<input type="text" id="a_e" ' + (signup ? 'inputmode="email" autocomplete="email"' : 'autocomplete="username"') + ' autocapitalize="none" spellcheck="false">'
+    + '<label for="a_p">Senha</label><input type="password" id="a_p" autocomplete="' + (signup ? 'new-password' : 'current-password') + '">'
+    + when(signup && !pendingInvite(), '<p class="muted auth-hint">Depois do cadastro você escolhe a empresa (ou cadastra a sua).</p>')
+    + '<label class="check auth-keep"><input type="checkbox" id="a_k">Manter conectado</label>'
+    + '<p class="auth-error" id="a_m" role="alert">' + esc(ui.authMsg) + '</p>'
+    + '<button class="primary btn-lg block" id="a_go">' + (signup ? 'Criar conta' : 'Entrar') + '</button>'
+    + '<p class="auth-switch">' + (signup ? 'Já tem conta?' : 'Ainda não tem conta?')
+    + ' <button class="link" id="a_mode">' + (signup ? 'Entrar' : 'Criar conta') + '</button></p>'
+    + '</div></section>';
 }

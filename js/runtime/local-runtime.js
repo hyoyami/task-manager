@@ -92,8 +92,17 @@
     };
   }
 
+  function profileByUsername(uname) {
+    var u = String(uname || '').trim().toLowerCase();
+    return Object.keys(store).filter(function (k) { return k.indexOf('profiles/') === 0; })
+      .map(function (k) { return store[k]; })
+      .find(function (p) { return String(p.username || '').toLowerCase() === u; });
+  }
+  function emailForUsername(uname) { var p = profileByUsername(uname); return p ? p.email : null; }
+
   /** Equivalentes locais das funções do banco do Supabase (supabase/schema.sql). */
   var functions = {
+    username_available: async function (args) { return !profileByUsername(args.uname); },
     join_with_invite: async function (args) {
       var invite = store['invites/' + args.code];
       if (!invite || !currentAid || !store['profiles/' + currentAid]) throw new Error('Convite inválido.');
@@ -148,10 +157,12 @@
       writeAid(id, keep);
       return (currentAid = id);
     },
-    signIn: async function (email, password, keep) {
-      var id = await credIdOf(email);
-      var cred = credOf(id);
-      if (!(await matches(cred, password))) throw new Error('E-mail ou senha incorretos.');
+    /** `login` é o e-mail ou o nome de usuário. */
+    signIn: async function (login, password, keep) {
+      var email = login.indexOf('@') < 0 ? emailForUsername(login) : login;
+      var id = email ? await credIdOf(email) : null;
+      var cred = id && credOf(id);
+      if (!(await matches(cred, password))) throw new Error('E-mail/usuário ou senha incorretos.');
       var aid = cred.aid || id;
       if (store['profiles/' + aid]) await docRef('profiles/' + aid).update({ ck: id });
       writeAid(aid, keep);

@@ -256,7 +256,18 @@ function moveAgendaDay(delta) {
 
 // ---------- Conta e folgas ----------
 async function saveProfile() {
-  await patchMyProfile({ name: $('#p_n').value.trim() || state.me.name });
+  const patch = { name: $('#p_n').value.trim() || state.me.name };
+  const username = normalizeUsername($('#p_u')?.value);
+  if (username !== normalizeUsername(state.me.username)) {
+    if (!isValidUsername(username)) return say(USERNAME_RULE);
+    if (!(await usernameAvailable(username, state.uid))) return say('Este nome de usuário já está em uso.');
+    patch.username = username;
+  }
+  try {
+    await patchMyProfile(patch);
+  } catch (err) {
+    return say(/duplicate|unique|username/i.test(err.message) ? 'Este nome de usuário já está em uso.' : 'Não foi possível salvar.');
+  }
   say('Dados salvos.');
 }
 
@@ -324,7 +335,16 @@ async function chooseTheme(theme) {
 // ---------- Tabelas de despacho ----------
 const ACTIONS_BY_ID = {
   // Login
-  a_go: async (btn) => { btn.disabled = true; try { await submitAuth(); } finally { btn.disabled = false; } },
+  a_go: async (btn) => {
+    btn.disabled = true;
+    btn.classList.add('loading');
+    btn.setAttribute('aria-busy', 'true');
+    try { await submitAuth(); } finally {
+      btn.disabled = false;
+      btn.classList.remove('loading');
+      btn.removeAttribute('aria-busy');
+    }
+  },
   a_mode: () => { ui.authMode = ui.authMode === 'in' ? 'up' : 'in'; ui.authMsg = ''; render(); },
   a_out: () => logout(),
   // Cabeçalho, menu e notificações
