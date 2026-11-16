@@ -11,6 +11,16 @@ const MIN = 60 * 1000;
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
 
+/** Esvazia campos depois de salvar (para o próximo redesenho não os restaurar — ver renderApp). */
+function clearFields(...ids) {
+  ids.forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.value = '';
+    if ('defaultValue' in el) el.defaultValue = '';
+  });
+}
+
 /** Escapa texto para inserção segura em HTML (conteúdo e atributos). */
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]

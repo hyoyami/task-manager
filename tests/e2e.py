@@ -83,9 +83,19 @@ class Run:
         pg.wait_for_selector("nav button, #ob_cn, #ob_cancel")
         self.wait(250)
 
-    def create_company(self, name):
+    def create_company(self, name, devices=()):
+        """Cria a empresa e passa pela etapa "Aparelhos da empresa" (cadastrando `devices` ou pulando)."""
         self.pg.fill("#ob_cn", name)
         self.click("#ob_create")
+        self.pg.wait_for_selector("#cs_done")
+        for area, dev_name, ip in devices:
+            self.pg.select_option("#dv_a", area)
+            self.pg.fill("#dv_n", dev_name)
+            self.pg.fill("#dv_i", ip)
+            self.click("#dv_add")
+        if not devices:
+            self.pg.check("#cs_skip")
+        self.click("#cs_done")
         self.pg.wait_for_selector("nav button")
 
     def invite(self, role):
@@ -408,6 +418,7 @@ def main():
         n = priority_flow(b, shots_dir)
         n += company_flow(b, shots_dir)
         n += open_task_flow(b, shots_dir)
+        n += deletion_flow(b, shots_dir)
         print(f"OK: {len(r.shots) + n} telas verificadas, sem erros de JavaScript.")
         b.close()
 
@@ -525,17 +536,33 @@ def company_flow(browser, shots_dir):
     profile = lambda email: next(v for k, v in json.loads(pg.evaluate("localStorage.getItem('tm_db_v1')")).items()
                                  if k.startswith("profiles/") and v.get("email") == email)
 
-    # Administrador cria a empresa, cadastra aparelhos e uma função que só vê computadores.
+    # Administrador cria a empresa e cadastra os aparelhos na etapa "Aparelhos da empresa".
     r.signup("Gil", "gil@teste.com")
-    r.create_company("Alfa")
-    alfa = pg.evaluate("state.company.id")
-    for area, name, ip in [("Impressora", "Impressora Alfa", "10.0.0.1"), ("Computador", "PC Alfa", "10.0.0.2")]:
-        r.tab("workstation")
-        r.click('[data-wst="new"]')
+    pg.fill("#ob_cn", "Alfa")
+    r.click("#ob_create")
+    pg.wait_for_selector("#cs_done")
+    assert pg.locator("nav button").count() == 0          # abas só depois da configuração
+    r.click("#cs_done")
+    assert "Cadastre ao menos um aparelho" in toast(r), toast(r)
+    for area, name, ip in [("Impressora", "Impressora Alfa", "10.0.0.1"), ("Computador", "PC Alfa", "10.0.0.2"),
+                           ("Computador", "Sobra", "10.0.0.3")]:
         pg.select_option("#dv_a", area)
         pg.fill("#dv_n", name)
         pg.fill("#dv_i", ip)
         r.click("#dv_add")
+        assert pg.input_value("#dv_n") == ""                 # formulário volta limpo
+    pg.fill("#dv_n", "IP ruim")
+    pg.fill("#dv_i", "999.1.1.1")
+    r.click("#dv_add")
+    assert "IP v" in toast(r)
+    sobra = pg.evaluate("Object.values(state.devices).find(d => d.name === 'Sobra').id")
+    r.click(f'[data-csdel="{sobra}"]')
+    assert pg.locator(".setup-list .list-row").count() == 2
+    r.shot("empresa-aparelhos")
+    r.click("#cs_done")
+    pg.wait_for_selector("nav button")
+    assert pg.evaluate("ui.tab") == "workstation" and pg.locator(".device-card").count() == 2
+    alfa = pg.evaluate("state.company.id")
     r.tab("empresa")
     pg.fill("#adm_cg_n", "Desenvolvedor")
     r.click("#adm_cg_add")
@@ -737,6 +764,95 @@ def open_task_flow(browser, shots_dir):
     r.click(f'[data-dev="{dev}"]')
     r.click(f'[data-devdel="{dev}"]')
     assert pg.locator(f'.device-card[data-did="{dev}"]').count() == 0
+    assert not r.errors, r.errors
+    ctx.close()
+    return len(r.shots)
+
+
+def deletion_flow(browser, shots_dir):
+    """Excluir conta (com confirmação e senha) e excluir empresa (só o admin, apaga tudo dela)."""
+    ctx = browser.new_context(viewport={"width": 420, "height": 1400}, timezone_id="America/Sao_Paulo", locale="pt-BR")
+    pg = ctx.new_page()
+    pg.clock.set_fixed_time(NOW)
+    r = Run(pg, shots_dir / "exclusao" if shots_dir else None)
+    if r.shots_dir:
+        r.shots_dir.mkdir(exist_ok=True)
+    pg.goto(INDEX)
+    db = lambda: json.loads(pg.evaluate("localStorage.getItem('tm_db_v1')"))
+    rows = lambda col: [v for k, v in db().items() if k.startswith(col + "/")]
+
+    r.signup("Zé", "ze@teste.com")
+    r.create_company("Zeta")
+    r.tab("workstation")
+    r.click('[data-wst="new"]')
+    pg.select_option("#dv_a", "Computador")
+    pg.fill("#dv_n", "PC Zeta")
+    pg.fill("#dv_i", "10.0.0.30")
+    r.click("#dv_add")
+    func_link, sol_link = r.invite("func"), r.invite("sol")
+    r.logout()
+    pg.goto(func_link)
+    r.signup("Rui", "rui@teste.com")
+    rui = pg.evaluate("state.uid")
+    r.logout()
+    pg.goto(sol_link)
+    r.signup("Mia", "mia@teste.com")
+    r.click("#nfab")
+    pg.fill("#f_t", "Trocar teclado")
+    pg.fill("#f_d", "Tecla quebrada")
+    pg.check(f'.f_e[value="{rui}"]')
+    r.click("#f_go")
+    r.logout()
+
+    # Rui exclui a conta: confirmação e senha são exigidas.
+    r.login("rui")
+    r.menu("perfil")
+    r.click("#xa_open")
+    pg.fill("#xa_p", "123456")
+    pg.fill("#xa_t", "sim")
+    r.click("#xa_ok")
+    assert toast(r) == "Digite EXCLUIR para confirmar.", toast(r)
+    pg.fill("#xa_p", "errada")
+    pg.fill("#xa_t", "excluir")
+    r.click("#xa_ok")
+    r.wait(300)
+    assert toast(r) == "Senha atual incorreta.", toast(r)
+    pg.fill("#xa_p", "123456")
+    r.click("#xa_ok")
+    pg.wait_for_selector("#a_go")
+    assert not any(p.get("email") == "rui@teste.com" for p in rows("profiles"))
+    t = next(t for t in rows("tasks") if t["title"] == "Trocar teclado")
+    assert t["emp"] is None and t["pool"] is True and t["status"] == "aguardando", t  # volta para a equipe
+    pg.fill("#a_e", "rui")
+    pg.fill("#a_p", "123456")
+    r.click("#a_go")
+    r.wait(300)
+    assert "incorretos" in pg.inner_text("#a_m")  # a conta não existe mais
+
+    # O admin não exclui a conta enquanto tiver empresa; exclui a empresa (nome tem de conferir).
+    r.login("ze")
+    r.menu("perfil")
+    assert pg.locator("#xa_open").count() == 0 and "exclua a empresa antes" in pg.inner_text(".danger-zone")
+    r.tab("empresa")
+    r.click("#xc_open")
+    pg.fill("#xc_t", "Zet")
+    pg.fill("#xc_p", "123456")
+    r.click("#xc_ok")
+    assert toast(r) == "O nome digitado não confere.", toast(r)
+    pg.fill("#xc_t", "Zeta")
+    r.click("#xc_ok")
+    pg.wait_for_selector("#ob_cn")  # admin volta para a tela de entrada
+    assert rows("companies") == [] and rows("tasks") == [] and rows("devices") == [] and rows("invites") == []
+    mia = next(p for p in rows("profiles") if p.get("email") == "mia@teste.com")
+    assert mia["company"] is None and mia["status"] is None, mia
+    # Sem empresa, agora o admin pode excluir a própria conta.
+    r.menu("perfil")
+    r.click("#xa_open")
+    pg.fill("#xa_p", "123456")
+    pg.fill("#xa_t", "EXCLUIR")
+    r.click("#xa_ok")
+    pg.wait_for_selector("#a_go")
+    assert not any(p.get("email") == "ze@teste.com" for p in rows("profiles"))
     assert not r.errors, r.errors
     ctx.close()
     return len(r.shots)

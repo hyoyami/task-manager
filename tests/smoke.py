@@ -23,6 +23,9 @@ with sync_playwright() as p:
     pg.wait_for_selector("#ob_cn")  # tela de entrada na empresa
     pg.fill("#ob_cn", "Empresa Teste")
     pg.click("#ob_create")
+    pg.wait_for_selector("#cs_done")  # etapa "Aparelhos da empresa"
+    pg.check("#cs_skip")
+    pg.click("#cs_done")
     pg.wait_for_selector("nav button")
     tabs = pg.eval_on_selector_all("nav button", "e => e.map(x => x.textContent)")
     assert tabs == ["Agenda", "Tarefas", "Equipe", "Área de Trabalho", "Empresa"], tabs

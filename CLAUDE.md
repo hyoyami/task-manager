@@ -97,10 +97,18 @@ Testes: `pip install playwright && playwright install chromium`, depois
 - Papéis: **admin** (criou a empresa; faz tudo de funcionário e de solicitante + aba Empresa), **func**, **sol**.
 - Conta nova → tela de entrada (`views/onboarding.js`): criar empresa (vira admin) ou pedir entrada escolhendo
   papel (fica `pending` até o admin aceitar). Link de convite (`?convite=`) entra direto com o papel do link.
+- Empresa recém-criada tem `setup:false`: o admin passa pela etapa **"Aparelhos da empresa"** (`viewCompanySetup()`)
+  antes das abas — cadastra aparelhos (ou marca "cadastrar depois") e conclui (`setup:true`). Empresas sem o
+  campo são consideradas prontas.
 - "Configurações de trabalho" (menu, aba `wcfg`) é **só do funcionário**: vê a sua função, cria categorias, edita
   problemas e exclui categorias **sem aparelhos** (as com aparelhos só o admin). No banco, o gatilho `guard_company`
   deixa o funcionário mudar só categorias/problemas (funções só ganham categorias; nome/admin nunca).
   O admin faz tudo isso na aba Empresa e exclui aparelhos pela janela do aparelho ("Excluir aparelho").
+- Excluir conta (Configurações da conta → zona de perigo; senha + digitar "EXCLUIR"): RPC `delete_my_account` —
+  tarefas abertas que a pessoa pediu são canceladas, as que executaria voltam a ficar abertas para a equipe;
+  o admin só exclui a conta depois de excluir a empresa. Excluir empresa (aba Empresa; senha + digitar o nome):
+  RPC `delete_company` — apaga tarefas, aparelhos, tutoriais, convites e notificações da empresa; os membros
+  ficam sem empresa (voltam à tela de entrada).
 - A aba de aparelhos do funcionário/admin chama-se **"Área de Trabalho"** (chave interna `workstation`).
 - Aba Empresa (admin): pedidos de entrada (contador na aba; aceitar com papel e função), membros (trocar papel
   sol/func e função, remover), links de convite, funções (quais categorias cada uma vê) e categorias/problemas.
@@ -151,6 +159,8 @@ Testes: `pip install playwright && playwright install chromium`, depois
   Todo texto do usuário/banco passa por `esc()`; `when(cond, html)` e `each(lista, fn)` ajudam a montar HTML.
 - `render()` redesenha tudo a partir de `state`/`ui`; não redesenha enquanto há campo de texto em foco
   em `<main>` (fora da Agenda) nem durante arrasto (`ui.drag`). Sem empresa ativa, só mostra a tela de entrada.
+- `renderApp()` preserva, na mesma aba, o que a pessoa já preencheu/escolheu e ainda não salvou (o tempo real
+  redesenha a tela a qualquer momento). Depois de salvar com sucesso, esvazie os campos com `clearFields(...ids)`.
 - Dados chegam crus em `raw` (domain/auth.js) e `applyCompanyScope()` monta `state`. Quando empresa/status do
   usuário mudam, `startSession()` reabre todas as assinaturas (o que o banco deixa ver mudou).
 - Cliques passam por um listener global (`app/events.js`) que despacha para `ACTIONS_BY_ID[btn.id]`

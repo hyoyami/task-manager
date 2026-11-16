@@ -41,3 +41,31 @@ function viewOnboarding() {
     + (companies.length ? joinCard + createCard
       : createCard + '<p class="auth-switch">Tem um link de convite? Abra o link e você entra direto.</p>'));
 }
+
+/** Etapa logo após criar a empresa: o administrador cadastra os aparelhos dela. */
+function viewCompanySetup() {
+  const devices = Object.values(state.devices).sort((a, b) => a.created - b.created);
+  const row = (d) => '<div class="row between nowrap list-row">'
+    + '<span>' + categoryIcon(categoryByName(d.area)) + '<b>' + esc(d.name) + '</b> '
+    + '<span class="muted">' + esc(d.area) + ' · IP ' + esc(d.ip || '—') + '</span></span>'
+    + removeButton('data-csdel="' + d.id + '"', 'Remover aparelho') + '</div>';
+  return '<section class="auth with-header setup">'
+    + '<h1 class="auth-hello">' + esc(state.company.name) + '</h1>'
+    + '<p class="auth-lead">Último passo: cadastre os aparelhos da empresa. Eles aparecem para toda a equipe '
+    + '(cada funcionário vê os das categorias da sua função).</p>'
+    + '<div class="auth-card">'
+    + '<h2 class="auth-title">Aparelhos da empresa</h2>'
+    + (devices.length ? '<div class="setup-list">' + each(devices, row) + '</div>'
+      : '<p class="muted">Nenhum aparelho cadastrado ainda.</p>')
+    + '<label for="dv_a">Categoria</label><select id="dv_a">' + each(companyCategories(), (c) => '<option>' + esc(c.name) + '</option>') + '</select>'
+    + '<div class="grid-2"><div><label for="dv_n">Nome</label><input type="text" id="dv_n" placeholder="Ex.: PC Recepção"></div>'
+    + '<div><label for="dv_i">IP</label><input type="text" id="dv_i" inputmode="decimal" placeholder="Ex.: 192.168.0.25"></div></div>'
+    + '<button class="btn-lg block" id="dv_add">＋ Adicionar aparelho</button>'
+    + '</div>'
+    + '<div class="auth-card">'
+    + when(!devices.length, '<label class="check auth-keep"><input type="checkbox" id="cs_skip">Cadastrar os aparelhos depois</label>')
+    + '<button class="primary btn-lg block" id="cs_done">Concluir configuração'
+    + when(devices.length, ' (' + plural(devices.length, 'aparelho', 'aparelhos') + ')') + '</button>'
+    + '<p class="auth-switch">Dá para cadastrar mais aparelhos e criar categorias depois, na aba Empresa e na Área de Trabalho.</p>'
+    + '</div></section>';
+}

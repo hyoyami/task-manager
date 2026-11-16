@@ -100,5 +100,9 @@ function viewCompany() {
     + '<input type="text" id="adm_cg_n" class="grow" maxlength="40" placeholder="Ex.: Desenvolvedor">'
     + '<button class="primary" id="adm_cg_add">Adicionar</button></div></div>'
 
-    + '<h2>Categorias e problemas</h2>' + categoryManager();
+    + '<h2>Categorias e problemas</h2>' + categoryManager()
+    + '<div class="card danger-zone mt-12"><b>Excluir empresa</b>'
+    + '<p class="muted">Apaga a empresa e todos os dados dela: tarefas, aparelhos e logs, tutoriais e convites. '
+    + 'Os membros (e você) continuam com a conta, mas ficam sem empresa. Não dá para desfazer.</p>'
+    + '<p class="mb-0"><button class="small danger" id="xc_open">Excluir empresa</button></p></div>';
 }

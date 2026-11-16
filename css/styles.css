@@ -267,6 +267,10 @@ body.auth-screen ::selection, body.auth-bg ::selection { background: var(--accen
 .auth-card + .auth-card { margin-top: 14px; }
 .auth.with-header { min-height: calc(100dvh - 28px - var(--header-h) - 8px - var(--safe-top) - var(--safe-bottom)); }
 .auth-hello { font-size: 22px; margin: 0 0 6px; text-align: center; }
+.auth.setup { max-width: 480px; }
+.setup-list { margin: 4px 0 6px; }
+.setup-list .list-row { gap: 8px; }
+.setup-list .list-row > span { min-width: 0; overflow-wrap: anywhere; }
 .auth-lead { margin: 0 0 18px; text-align: center; color: var(--muted); }
 .auth-card .auth-lead { text-align: left; color: var(--text); margin: 8px 0 6px; }
 .auth-note { padding: 14px 16px; margin-bottom: 12px; }
@@ -303,6 +307,7 @@ button.primary:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--accent) 86%, var(--bg));
 }
 button.btn-lg:active:not(:disabled) { transform: translateY(1px); }
+.auth-card > button.btn-lg:first-child { margin-top: 0; }
 .auth-card button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 button:disabled { opacity: .65; cursor: progress; }
 
@@ -416,6 +421,10 @@ main.wide { max-width: 1180px; }
 .detail-list dt { color: var(--muted); }
 .detail-list dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .detail-history { max-height: 220px; overflow: auto; }
+
+/* Zona de perigo: ações irreversíveis (excluir conta / empresa). */
+.danger-zone { border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
+.danger-zone > b { color: var(--danger); }
 
 /* ---------- Modal ---------- */
 .modal {

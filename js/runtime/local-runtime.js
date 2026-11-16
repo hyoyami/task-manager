@@ -103,6 +103,47 @@
   /** Equivalentes locais das funções do banco do Supabase (supabase/schema.sql). */
   var functions = {
     username_available: async function (args) { return !profileByUsername(args.uname); },
+    // Mesmo efeito das funções delete_my_account / delete_company do Supabase.
+    delete_my_account: async function () {
+      var me = currentAid;
+      if (!me) throw new Error('Faça login.');
+      var owns = Object.keys(store).some(function (k) { return k.indexOf('companies/') === 0 && store[k].admin === me; });
+      if (owns) throw new Error('Você é administrador de uma empresa: exclua a empresa antes de excluir a conta.');
+      var now = Date.now();
+      Object.keys(store).forEach(function (k) {
+        var v = store[k];
+        if (k.indexOf('tasks/') === 0 && ['concluida', 'cancelada'].indexOf(v.status) < 0) {
+          var hist = (v.hist || []).slice();
+          if (v.req === me) {
+            hist.push({ t: now, x: 'Cancelada: a conta de quem pediu foi excluída' });
+            store[k] = Object.assign({}, v, { status: 'cancelada', hist: hist });
+          } else if (v.emp === me) {
+            hist.push({ t: now, x: 'Voltou a ficar aberta para a equipe: a conta do funcionário foi excluída' });
+            store[k] = Object.assign({}, v, { emp: null, pool: true, status: 'aguardando', start: null, cat: v.devArea || null, hist: hist });
+          }
+        }
+        if ((k.indexOf('notifs/') === 0 && v.to === me) || (k.indexOf('invites/') === 0 && v.by === me)) delete store[k];
+      });
+      var profile = store['profiles/' + me] || {};
+      delete store['profiles/' + me];
+      delete store['cred/' + (profile.ck || me)];
+      save();
+      emit();
+    },
+    delete_company: async function () {
+      var me = currentAid;
+      var key = Object.keys(store).find(function (k) { return k.indexOf('companies/') === 0 && store[k].admin === me; });
+      if (!key) throw new Error('Só o administrador pode excluir a empresa.');
+      var cid = key.slice('companies/'.length);
+      Object.keys(store).forEach(function (k) {
+        var v = store[k];
+        if (/^(tasks|devices|tutorials|notifs|invites)\//.test(k) && v.company === cid) delete store[k];
+        else if (k.indexOf('profiles/') === 0 && v.company === cid) store[k] = Object.assign({}, v, { company: null, status: null, role: null });
+      });
+      delete store[key];
+      save();
+      emit();
+    },
     // Mesmas verificações da função claim_task do Supabase.
     claim_task: async function (args) {
       var t = store['tasks/' + args.task_id];
@@ -207,6 +248,9 @@
       if (next !== ck) await docRef('cred/' + ck).delete();
       await docRef('profiles/' + currentAid).update({ ck: next });
       return { pending: false };
+    },
+    verifyPassword: async function (password) {
+      if (!(await matches(credOf(myCredId()), password))) throw new Error('Senha atual incorreta.');
     },
     changePassword: async function (current, next) {
       var ck = myCredId();

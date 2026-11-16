@@ -51,7 +51,7 @@ function render() {
 
   if (!state.me) return renderLoggedOut();
   document.body.classList.remove('auth-screen');
-  document.body.classList.toggle('auth-bg', !isActiveMember());
+  document.body.classList.toggle('auth-bg', !isActiveMember() || needsCompanySetup());
 
   $('#top').innerHTML = headerHtml();
   $('#pnb').innerHTML = viewNotifications();
@@ -63,7 +63,17 @@ function render() {
     $('#nav').innerHTML = '';
     $('#nfab').classList.remove('show');
     $('#app').classList.remove('wide');
-    $('#app').innerHTML = ui.tab === 'perfil' ? viewAccount() : viewOnboarding();
+    renderApp(ui.tab === 'perfil' ? viewAccount() : viewOnboarding());
+    return;
+  }
+
+  // Empresa recém-criada: etapa "Aparelhos da empresa" antes de liberar as abas.
+  if (needsCompanySetup()) {
+    if (ui.tab !== 'perfil') ui.tab = 'setup';
+    $('#nav').innerHTML = '';
+    $('#nfab').classList.remove('show');
+    $('#app').classList.remove('wide');
+    renderApp(ui.tab === 'perfil' ? viewAccount() : viewCompanySetup());
     return;
   }
 
@@ -71,7 +81,7 @@ function render() {
   $('#nav').innerHTML = navHtml();
   $('#nfab').classList.toggle('show', canRequest());
   $('#app').classList.toggle('wide', ui.tab === 'agenda');
-  $('#app').innerHTML = VIEWS[ui.tab][0]();
+  renderApp(VIEWS[ui.tab][0]());
 }
 
 function renderLoggedOut() {
@@ -84,4 +94,46 @@ function renderLoggedOut() {
   openMenu(false);
   // Com sessão salva, o perfil ainda está chegando do banco.
   $('#app').innerHTML = state.uid ? '<p class="muted">Carregando…</p>' : viewLogin();
+}
+
+// ---------- Preservar o que a pessoa está preenchendo ----------
+// Atualizações em tempo real redesenham a tela a qualquer momento. Na mesma tela, o que a pessoa já
+// escolheu ou digitou (e ainda não salvou) é guardado antes e restaurado depois.
+let lastRenderedTab = null;
+
+const fieldKey = (el) => el.id
+  || (el.className && (el.dataset.id || el.dataset.i) ? el.className + '|' + (el.dataset.id || el.dataset.i) : '');
+
+function isDirty(el) {
+  if (el.type === 'checkbox' || el.type === 'radio') return el.checked !== el.defaultChecked;
+  if (el.tagName === 'SELECT') return [...el.options].some((o) => o.selected !== o.defaultSelected);
+  return el.value !== el.defaultValue;
+}
+
+function captureFields(root) {
+  const saved = new Map();
+  root.querySelectorAll('input, select, textarea').forEach((el) => {
+    const key = fieldKey(el);
+    if (!key || el.type === 'file' || !isDirty(el)) return;
+    saved.set(key, el.type === 'checkbox' || el.type === 'radio' ? { checked: el.checked } : { value: el.value });
+  });
+  return saved;
+}
+
+function restoreFields(root, saved) {
+  root.querySelectorAll('input, select, textarea').forEach((el) => {
+    const v = saved.get(fieldKey(el));
+    if (!v) return;
+    if ('checked' in v) el.checked = v.checked;
+    else el.value = v.value;
+  });
+}
+
+function renderApp(html) {
+  const app = $('#app');
+  const sameTab = lastRenderedTab === ui.tab;
+  const saved = sameTab ? captureFields(app) : null;
+  app.innerHTML = html;
+  lastRenderedTab = ui.tab;
+  if (saved && saved.size) restoreFields(app, saved);
 }

@@ -126,6 +126,7 @@ async function changeEmail() {
   }
   if (result?.pending) return say('Enviamos um link ao novo e-mail. A troca vale após a confirmação.');
   await updateMyProfile({ email });
+  clearFields('em_n', 'em_p');
   say('E-mail alterado.');
 }
 
@@ -137,6 +138,7 @@ async function changePassword() {
   } catch (err) {
     return say(err.message);
   }
+  clearFields('pw_c', 'pw_n');
   say('Senha alterada.');
 }
 

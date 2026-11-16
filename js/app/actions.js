@@ -29,6 +29,7 @@ async function submitDevice() {
   if (!name) return say('Informe o nome do aparelho.');
   if (!isValidIp(ip)) return say('Informe um IP válido (ex.: 192.168.0.25).');
   await createDevice({ name, ip, area: $('#dv_a').value });
+  clearFields('dv_n', 'dv_i');
   ui.wsStep = 'dev';
   say('Aparelho cadastrado.');
   render();
@@ -41,6 +42,7 @@ async function submitCategory() {
   if (!file || file.type !== 'image/png') return say('Envie o ícone em PNG.');
   if (companyCategories().some((c) => c.name.toLowerCase() === name.toLowerCase())) return say('Essa categoria já existe.');
   await addCategory(name, await readIcon(file));
+  clearFields('wc_n', 'wc_f');
   say('Categoria adicionada.');
   render();
 }
@@ -64,6 +66,18 @@ async function deleteDeviceFromModal(id) {
   closeModal();
   await deleteDevice(id);
   say('Aparelho excluído.');
+  render();
+}
+
+/** Conclui a etapa "Aparelhos da empresa" (precisa de um aparelho ou de "cadastrar depois"). */
+async function submitCompanySetup() {
+  const later = $('#cs_skip')?.checked;
+  if (!Object.keys(state.devices).length && !later) {
+    return say('Cadastre ao menos um aparelho ou marque “Cadastrar os aparelhos depois”.');
+  }
+  await finishCompanySetup();
+  ui.tab = Object.keys(state.devices).length ? 'workstation' : 'empresa';
+  say('Tudo pronto! Agora convide a equipe na aba Empresa.');
   render();
 }
 
@@ -120,8 +134,7 @@ async function submitCreateCompany() {
     return say('Já existe uma empresa com esse nome.');
   }
   await createCompany(name);
-  ui.tab = 'empresa';
-  say('Empresa criada! Cadastre os aparelhos e convide a equipe.');
+  say('Empresa criada! Agora cadastre os aparelhos da empresa.');
 }
 
 async function submitJoinRequest() {
@@ -192,6 +205,7 @@ async function submitCargo() {
   } catch (err) {
     return say(err.message);
   }
+  clearFields('adm_cg_n');
   say('Função criada. Marque as categorias que ela vê.');
   render();
 }
@@ -201,6 +215,39 @@ async function removeCargo(key) {
   if (!confirm('Excluir a função?' + (users ? ' ' + users + ' membro(s) precisarão escolher outra.' : ''))) return;
   await deleteCargo(key);
   render();
+}
+
+// ---------- Exclusões ----------
+async function confirmDeleteAccount(btn) {
+  if ($('#xa_t').value.trim().toUpperCase() !== 'EXCLUIR') return say('Digite EXCLUIR para confirmar.');
+  btn.disabled = true;
+  try {
+    await state.auth.verifyPassword($('#xa_p').value);
+    await state.db.call('delete_my_account');
+  } catch (err) {
+    btn.disabled = false;
+    return say(err.message);
+  }
+  const id = state.uid;
+  closeModal();
+  forgetAccount(id);
+  await state.auth.signOut().catch(() => {});
+  showLogin();
+  say('Sua conta foi excluída.');
+}
+
+async function confirmDeleteCompany(btn) {
+  if ($('#xc_t').value.trim() !== (state.company?.name || '')) return say('O nome digitado não confere.');
+  btn.disabled = true;
+  try {
+    await state.auth.verifyPassword($('#xc_p').value);
+    await state.db.call('delete_company');
+  } catch (err) {
+    btn.disabled = false;
+    return say(err.message);
+  }
+  closeModal();
+  say('Empresa excluída.');
 }
 
 // ---------- Tutoriais ----------
@@ -327,6 +374,7 @@ async function addTimeOff() {
   if (e <= s) return say('A data final precisa ser igual ou posterior à inicial.');
   const off = [...(profileOf(state.uid).off || []), { s, e, note: $('#o_n').value.trim() }];
   await patchMyProfile({ off });
+  clearFields('o_s', 'o_e', 'o_n');
   say('Folga adicionada.');
   await requeueForTimeOff((t) => off.some((x) => t.start < x.e && taskEnd(t) > x.s), 'indisponibilidade');
 }
@@ -379,7 +427,13 @@ const ACTIONS_BY_ID = {
   gr_ok: saveGroupName,
   pb_add: addProblem,
   tu_add: submitTutorialStep,
+  // Exclusões
+  xa_open: () => openDeleteAccount(),
+  xa_ok: confirmDeleteAccount,
+  xc_open: () => openDeleteCompany(),
+  xc_ok: confirmDeleteCompany,
   // Empresa
+  cs_done: submitCompanySetup,
   ob_create: submitCreateCompany,
   ob_join: submitJoinRequest,
   ob_cancel: cancelJoinRequest,
@@ -425,6 +479,7 @@ const ACTIONS_BY_DATA = {
   lg: addDeviceNote,
   ddel: armDeviceDelete,
   devdel: deleteDeviceFromModal,
+  csdel: async (v) => { await deleteDevice(v); say('Aparelho removido.'); render(); },
   cat: (v) => openCategory(v),
   cdel: (v) => openCategoryDelete(v),
   grename: (v) => openGroupRename(v),

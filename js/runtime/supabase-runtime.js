@@ -278,6 +278,7 @@
       if (r.error) throw new Error(/already|registered|exists/i.test(r.error.message) ? 'Este e-mail já está em uso.' : authMessage(r.error));
       return { pending: !r.data.user || r.data.user.email !== email };
     },
+    verifyPassword: verifyPassword,
     changePassword: async function (current, next) {
       await verifyPassword(current);
       var r = await sb.auth.updateUser({ password: next });

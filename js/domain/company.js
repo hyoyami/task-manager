@@ -63,6 +63,10 @@ async function updateCompany(patch) {
 }
 
 const renameCompany = (name) => updateCompany({ name });
+
+/** Empresa recém-criada ainda na configuração inicial (empresas antigas não têm o campo: já prontas). */
+const needsCompanySetup = () => isAdmin() && state.company?.setup === false;
+const finishCompanySetup = () => updateCompany({ setup: true });
 const saveProblems = (area, list) => updateCompany({ probs: { ...(state.company.probs || {}), [area]: list } });
 
 /** Nova categoria (com ícone PNG); passa a valer para todas as funções. */
@@ -115,7 +119,8 @@ async function deleteCargo(key) {
 async function createCompany(name) {
   const ref = newDoc('companies');
   const cargos = companyCargos(null);
-  await ref.set({ id: ref.id, name, admin: state.uid, created: Date.now(), cats: [], hidden: [], probs: {}, cargos });
+  // setup:false → o administrador passa pela etapa "Aparelhos da empresa" antes de entrar no sistema.
+  await ref.set({ id: ref.id, name, admin: state.uid, created: Date.now(), cats: [], hidden: [], probs: {}, cargos, setup: false });
   await updateMyProfile({ company: ref.id, status: 'active', role: 'admin' });
 }
 

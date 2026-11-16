@@ -35,8 +35,19 @@ function viewAccount() {
     + '<label>Nova senha</label><input type="password" id="pw_n" autocomplete="new-password">'
     + '<p><button class="small primary" id="pw_go">Alterar senha</button></p></div>'
     + when(isEmployee(), '<p class="row"><button class="small" data-go="folgas">Horário de trabalho e folgas</button>'
-      + when(state.me.role === 'func', '<button class="small" data-go="wcfg">Configurações de trabalho</button>') + '</p>');
+      + when(state.me.role === 'func', '<button class="small" data-go="wcfg">Configurações de trabalho</button>') + '</p>')
+    + '<div class="card danger-zone"><b>Excluir conta</b>'
+    + (ownsCompany()
+      ? '<p class="muted">Você é o administrador de <b>' + esc(state.company?.name || 'uma empresa') + '</b>. '
+        + 'Para excluir a sua conta, exclua a empresa antes (aba Empresa).</p>'
+      : '<p class="muted">Apaga a sua conta e o seu acesso. Tarefas abertas que você pediu são canceladas; '
+        + 'as que você executaria voltam a ficar abertas para a equipe. Não dá para desfazer.</p>'
+        + '<p class="mb-0"><button class="small danger" id="xa_open">Excluir minha conta</button></p>')
+    + '</div>';
 }
+
+/** O usuário logado é o administrador (dono) de uma empresa? */
+const ownsCompany = () => Object.values(state.companies).some((c) => c.admin === state.uid);
 
 // ---------- Horário de trabalho e folgas ----------
 const timeField = (id, label, value) =>

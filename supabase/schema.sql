@@ -313,6 +313,62 @@ begin
 end $$;
 
 grant execute on function public.claim_task(text) to authenticated;
+
+-- Excluir a própria conta. Tarefas abertas que a pessoa pediu são canceladas; as que ela executaria
+-- voltam a ficar abertas para a equipe. O administrador precisa excluir a empresa antes.
+create or replace function public.delete_my_account() returns void
+language plpgsql security definer set search_path = public, auth as $$
+declare
+  me text := auth.uid()::text;
+  now_ms bigint := (extract(epoch from now()) * 1000)::bigint;
+begin
+  if me is null then raise exception 'Faça login.'; end if;
+  if exists (select 1 from public.companies where admin = me) then
+    raise exception 'Você é administrador de uma empresa: exclua a empresa antes de excluir a conta.';
+  end if;
+  perform set_config('tm.bypass', 'on', true);
+  update public.tasks
+     set data = data || jsonb_build_object('status', 'cancelada',
+       'hist', coalesce(data->'hist', '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
+         't', now_ms, 'x', 'Cancelada: a conta de quem pediu foi excluída')))
+   where req = me and status not in ('concluida', 'cancelada');
+  update public.tasks
+     set data = data || jsonb_build_object('emp', null, 'pool', true, 'status', 'aguardando',
+       'start', null, 'cat', data->'devArea',
+       'hist', coalesce(data->'hist', '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
+         't', now_ms, 'x', 'Voltou a ficar aberta para a equipe: a conta do funcionário foi excluída')))
+   where emp = me and status not in ('concluida', 'cancelada');
+  delete from public.notifs where to_user = me;
+  delete from public.invites where data->>'by' = me;
+  delete from public.profiles where id = me;
+  delete from auth.users where id = auth.uid();
+end $$;
+
+-- Excluir a empresa (só o administrador): apaga todos os dados dela; os membros ficam sem empresa.
+create or replace function public.delete_company() returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  me text := auth.uid()::text;
+  cid text;
+begin
+  select id into cid from public.companies where admin = me;
+  if cid is null then raise exception 'Só o administrador pode excluir a empresa.'; end if;
+  perform set_config('tm.bypass', 'on', true);
+  delete from public.tasks     where company = cid;
+  delete from public.devices   where company = cid;
+  delete from public.tutorials where company = cid;
+  delete from public.notifs    where company = cid;
+  delete from public.invites   where company = cid;
+  update public.profiles
+     set data = data || jsonb_build_object('company', null, 'status', null, 'role', null)
+   where company = cid;
+  delete from public.companies where id = cid;
+end $$;
+
+grant execute on function public.delete_my_account() to authenticated;
+grant execute on function public.delete_company() to authenticated;
+revoke execute on function public.delete_my_account() from anon;
+revoke execute on function public.delete_company() from anon;
 grant execute on function public.username_available(text) to anon, authenticated;
 grant execute on function public.email_for_username(text) to anon, authenticated;
 grant execute on function public.doc_merge(text, text, jsonb) to authenticated;

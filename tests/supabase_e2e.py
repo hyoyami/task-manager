@@ -131,6 +131,9 @@ def main():
             admin.signup("Adm Teste", ADMIN_EMAIL)
             admin.pg.fill("#ob_cn", "Empresa E2E " + STAMP)
             admin.click("#ob_create")
+            admin.pg.wait_for_selector("#cs_done", timeout=15000)
+            admin.pg.check("#cs_skip")
+            admin.click("#cs_done")
             admin.pg.wait_for_selector('nav [data-tab="empresa"]', timeout=15000)
             company = admin.pg.evaluate("state.company.id")
             admin.click('nav [data-tab="workstation"]')
@@ -244,6 +247,9 @@ def main():
             out.signup("Otto Fora", OUT_EMAIL)
             out.pg.fill("#ob_cn", "Outra E2E " + STAMP)
             out.click("#ob_create")
+            out.pg.wait_for_selector("#cs_done", timeout=15000)
+            out.pg.check("#cs_skip")
+            out.click("#cs_done")
             out.pg.wait_for_selector('nav [data-tab="empresa"]', timeout=15000)
             leaked = out.pg.evaluate("""async () => {
               const db = await claude.use('db');
@@ -284,6 +290,27 @@ def main():
             func.click("#a_go")
             func.pg.wait_for_selector("nav button", timeout=20000)
             assert func.pg.evaluate("state.uid") == func_id
+
+            # Excluir empresa e depois a conta (pela tela), conferindo no banco.
+            out.click('nav [data-tab="empresa"]')
+            out.click("#xc_open")
+            out.pg.fill("#xc_t", "Outra E2E " + STAMP)
+            out.pg.fill("#xc_p", PASSWORD)
+            out.click("#xc_ok")
+            out.pg.wait_for_selector("#ob_cn", timeout=20000)
+            out.click("#mnb")
+            out.click('#mn_b [data-go="perfil"]')
+            out.click("#xa_open")
+            out.pg.fill("#xa_p", PASSWORD)
+            out.pg.fill("#xa_t", "EXCLUIR")
+            out.click("#xa_ok")
+            out.pg.wait_for_selector("#a_go", timeout=20000)
+            left = sql(f"""select (select count(*) from auth.users where email = '{OUT_EMAIL}') contas,
+                                  (select count(*) from public.companies where name = 'Outra E2E {STAMP}') empresas""")
+            assert left == [{"contas": 0, "empresas": 0}], left
+            # O admin de uma empresa não consegue excluir a conta antes de excluir a empresa.
+            r = admin.db_call("await db.call('delete_my_account')")
+            assert "exclua a empresa antes" in r, r
 
             errors = admin.errors + func.errors + sol.errors + out.errors
             assert not errors, errors

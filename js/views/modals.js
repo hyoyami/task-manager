@@ -182,3 +182,26 @@ function openGroupRename(groupId, isNew = false) {
     + '<button class="primary" id="gr_ok">Salvar</button></div>');
   setTimeout(() => { const input = $('#gr_n'); input?.focus(); input?.select(); }, 50);
 }
+
+// ---------- Exclusões (irreversíveis) ----------
+function openDeleteAccount() {
+  openModal('<h2>Excluir minha conta</h2>'
+    + '<p>Isto apaga a sua conta <b>' + esc(state.me.email || '') + '</b> de forma <b>definitiva</b>.</p>'
+    + '<p class="muted">Tarefas abertas que você pediu serão canceladas; as que você executaria voltam a ficar abertas para a equipe.</p>'
+    + '<label for="xa_p">Sua senha</label><input type="password" id="xa_p" autocomplete="current-password">'
+    + '<label for="xa_t">Digite <b>EXCLUIR</b> para confirmar</label><input type="text" id="xa_t" autocomplete="off" autocapitalize="characters">'
+    + '<div class="row between mt-12"><button id="dn_no">Cancelar</button>'
+    + '<button class="primary delete-solid" id="xa_ok">Excluir conta</button></div>');
+}
+
+function openDeleteCompany() {
+  const name = state.company?.name || '';
+  openModal('<h2>Excluir empresa</h2>'
+    + '<p>Isto apaga <b>' + esc(name) + '</b> e <b>todos</b> os dados dela de forma <b>definitiva</b>.</p>'
+    + '<p class="muted">Os membros continuam com a conta e voltam para a tela de entrada.</p>'
+    + '<label for="xc_t">Digite o nome da empresa (<b>' + esc(name) + '</b>) para confirmar</label>'
+    + '<input type="text" id="xc_t" autocomplete="off">'
+    + '<label for="xc_p">Sua senha</label><input type="password" id="xc_p" autocomplete="current-password">'
+    + '<div class="row between mt-12"><button id="dn_no">Cancelar</button>'
+    + '<button class="primary delete-solid" id="xc_ok">Excluir empresa</button></div>');
+}
