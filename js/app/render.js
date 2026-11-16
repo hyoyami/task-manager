@@ -114,7 +114,8 @@ function captureFields(root) {
   const saved = new Map();
   root.querySelectorAll('input, select, textarea').forEach((el) => {
     const key = fieldKey(el);
-    if (!key || el.type === 'file' || !isDirty(el)) return;
+    // data-live: o valor vem do estado da tela (ex.: data da agenda), não é rascunho do usuário.
+    if (!key || el.type === 'file' || 'live' in el.dataset || !isDirty(el)) return;
     saved.set(key, el.type === 'checkbox' || el.type === 'radio' ? { checked: el.checked } : { value: el.value });
   });
   return saved;

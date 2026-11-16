@@ -333,7 +333,8 @@ begin
          't', now_ms, 'x', 'Cancelada: a conta de quem pediu foi excluída')))
    where req = me and status not in ('concluida', 'cancelada');
   update public.tasks
-     set data = data || jsonb_build_object('emp', null, 'pool', true, 'status', 'aguardando',
+     set data = data || jsonb_build_object('emp', null, 'pool', true,
+       'status', case when status = 'programada' then 'programada' else 'aguardando' end,
        'start', null, 'cat', data->'devArea',
        'hist', coalesce(data->'hist', '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
          't', now_ms, 'x', 'Voltou a ficar aberta para a equipe: a conta do funcionário foi excluída')))
@@ -423,10 +424,12 @@ create policy profiles_update on public.profiles for update to authenticated
   using (id = auth.uid()::text or public.is_company_admin(company)) with check (true);
 
 -- Tarefas: membros da empresa veem (a agenda mostra horários ocupados); o solicitante cria;
--- só o solicitante e o responsável alteram. Ninguém apaga (histórico).
+-- o responsável também cria a próxima ocorrência de uma manutenção periódica (com `rec`, "programada").
+-- Só o solicitante e o responsável alteram. Ninguém apaga (histórico).
 create policy tasks_select on public.tasks for select to authenticated using (company = public.my_company());
 create policy tasks_insert on public.tasks for insert to authenticated
-  with check (req = auth.uid()::text and company = public.my_company());
+  with check (company = public.my_company() and (req = auth.uid()::text
+    or (emp = auth.uid()::text and data ? 'rec' and data->>'status' = 'programada')));
 create policy tasks_update on public.tasks for update to authenticated
   using (company = public.my_company() and (emp = auth.uid()::text or req = auth.uid()::text))
   with check (company = public.my_company());

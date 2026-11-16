@@ -106,7 +106,20 @@ async function addProblem() {
 
 async function removeProblem(index) {
   const area = ui.modal.category;
-  await saveProblems(area, problemsOf(area).filter((_, i) => i !== +index));
+  await deleteProblem(area, index);
+  openCategory(area);
+}
+
+async function submitProblemEdit() {
+  const area = ui.modal.category;
+  const index = ui.modal.problemIndex;
+  const name = $('#pb_en').value.trim();
+  if (!name) return say('Informe o nome do problema.');
+  if (problemsOf(area).some((x, i) => i !== index && x.toLowerCase() === name.toLowerCase())) return say('Esse problema já existe.');
+  const { rec, error } = readRecurrence('pb');
+  if (error) return say(error);
+  await saveProblem(area, index, name, rec);
+  say('Problema salvo.');
   openCategory(area);
 }
 
@@ -307,9 +320,14 @@ async function confirmComplete(btn) {
 }
 
 function moveAgendaDay(delta) {
-  const week = currentWeek();
-  const next = addDays(ui.agendaDay, delta);
-  if (next >= week.s && next < week.e) ui.agendaDay = next;
+  shiftAgenda(delta);
+  render();
+}
+
+/** Abre a agenda de um dia (visão Dia). */
+function openAgendaDay(ms) {
+  ui.agendaDay = startOfDay(ms);
+  ui.agendaView = 'dia';
   render();
 }
 
@@ -426,6 +444,7 @@ const ACTIONS_BY_ID = {
   cd_ok: confirmCategoryDelete,
   gr_ok: saveGroupName,
   pb_add: addProblem,
+  pb_save: submitProblemEdit,
   tu_add: submitTutorialStep,
   // Exclusões
   xa_open: () => openDeleteAccount(),
@@ -456,6 +475,9 @@ const ACTIONS_BY_DATA = {
   ag: (v) => { ui.agendaEmp = v; goTo('agenda'); },
   tf: (v) => { ui.taskFilter = v; render(); },
   day: (v) => moveAgendaDay(+v),
+  av: (v) => { ui.agendaView = v; render(); },
+  agday: (v) => openAgendaDay(+v),
+  agtoday: () => openAgendaDay(Date.now()),
   wst: (v) => { ui.wsStep = v; render(); },
   th: chooseTheme,
   // Contas
@@ -485,6 +507,7 @@ const ACTIONS_BY_DATA = {
   grename: (v) => openGroupRename(v),
   gungroup: async (v) => { await ungroup(v); say('Grupo desfeito.'); render(); },
   pdel: removeProblem,
+  pedit: (v) => openProblemEdit(ui.modal.category, +v),
   // Tutoriais
   tut: (v) => openTutorial(...splitTutorialKey(v)),
   tdel: removeTutorialStep,

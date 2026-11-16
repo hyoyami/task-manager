@@ -419,6 +419,7 @@ def main():
         n += company_flow(b, shots_dir)
         n += open_task_flow(b, shots_dir)
         n += deletion_flow(b, shots_dir)
+        n += recurrence_flow(b, shots_dir)
         print(f"OK: {len(r.shots) + n} telas verificadas, sem erros de JavaScript.")
         b.close()
 
@@ -853,6 +854,162 @@ def deletion_flow(browser, shots_dir):
     r.click("#xa_ok")
     pg.wait_for_selector("#a_go")
     assert not any(p.get("email") == "ze@teste.com" for p in rows("profiles"))
+    assert not r.errors, r.errors
+    ctx.close()
+    return len(r.shots)
+
+
+def recurrence_flow(browser, shots_dir):
+    """Manutenção periódica: prioridade alta, não deixa o aparelho inoperante e se repete ao concluir."""
+    ctx = browser.new_context(viewport={"width": 420, "height": 1400}, timezone_id="America/Sao_Paulo", locale="pt-BR")
+    pg = ctx.new_page()
+    pg.clock.set_fixed_time(NOW)
+    r = Run(pg, shots_dir / "periodica" if shots_dir else None)
+    if r.shots_dir:
+        r.shots_dir.mkdir(exist_ok=True)
+    pg.goto(INDEX)
+    tasks = lambda: [v for k, v in json.loads(pg.evaluate("localStorage.getItem('tm_db_v1')")).items() if k.startswith("tasks/")]
+
+    r.signup("Rui", "rui@teste.com")
+    r.create_company("Gráfica Periódica", [("Impressora", "Impressora Balcão", "10.0.0.5")])
+    me = pg.evaluate("state.uid")
+    dev = pg.evaluate("Object.keys(state.devices)[0]")
+
+    def create(n, unit, problem):
+        r.click("#nfab")
+        pg.select_option("#f_v", dev)
+        r.wait()
+        pg.check("#f_rc")
+        r.wait()
+        assert pg.eval_on_selector("#f_p", "e => e.disabled && e.value") == "alta"
+        pg.fill("#f_rn", str(n))
+        pg.select_option("#f_ru", unit)
+        pg.check(f'.f_e[value="{me}"]')
+        r.click(f'[data-pk="{problem}"]')
+        r.click("#f_go")
+        return next(t for t in tasks() if t.get("preset") == problem and t["status"] == "aguardando")
+
+    def run_and_finish(t, summary):
+        r.tab("tarefas")
+        pg.select_option(f'.dsel[data-i="{t["id"]}"]', "30")
+        r.wait(200)
+        r.click(f'[data-a="aceitar"][data-i="{t["id"]}"]')
+        r.tab("agenda")
+        r.click(f'[data-a="iniciar"][data-i="{t["id"]}"]')
+        assert device_status(r, dev) == "Em manutenção"
+        r.click(f'[data-a="concluir"][data-i="{t["id"]}"]')
+        pg.fill("#dn_t", summary)
+        r.click("#dn_ok")
+        r.wait(300)
+
+    # A cada 3 meses: criada com prioridade alta e o aparelho continua Operacional até iniciar.
+    t = create(3, "m", "Limpeza")
+    assert t["prio"] == "alta" and t["rec"] == {"n": 3, "u": "m"}, t
+    assert device_status(r, dev) == "Operacional"
+    run_and_finish(t, "Limpeza feita")
+    assert device_status(r, dev) == "Operacional"
+    nxt = next(x for x in tasks() if x.get("series") == t["id"])
+    due = int(datetime(2027, 2, 11, tzinfo=TZ).timestamp() * 1000)
+    assert nxt["status"] == "programada" and nxt["want"] == due, nxt
+    assert nxt["prio"] == "alta" and nxt["dur"] == 30 and nxt["emp"] == me and nxt["dev"] == dev, nxt
+    log = pg.evaluate(f"JSON.parse(localStorage.getItem('tm_db_v1'))['devices/{dev}'].log.map(l => l.x)")
+    assert any("próxima em 11/02/2027" in x for x in log), log
+    r.tab("tarefas")
+    txt = r.shot("periodica-programada")
+    assert "próxima manutenção" in txt.lower() and "11/02/2027" in txt and "a cada 3 meses" in txt, txt
+
+    # A cada 1 dia: a próxima cai nesta semana, então já entra na agenda (amanhã).
+    t2 = create(1, "d", "Esvaziar Impressora")
+    run_and_finish(t2, "Esvaziada")
+    nxt2 = next(x for x in tasks() if x.get("series") == t2["id"])
+    assert nxt2["status"] == "agendada" and ms(0, 0, 12) <= nxt2["start"] < ms(0, 0, 13), nxt2
+    assert device_status(r, dev) == "Operacional"
+
+    # Problema pré-definido editável: renomear e deixar o aviso periódico já marcado na Nova tarefa.
+    r.tab("empresa")
+    r.click('[data-cat="Impressora"]')
+    idx = pg.evaluate("problemsOf('Impressora').indexOf('Esvaziar Impressora')")
+    r.click(f'[data-pedit="{idx}"]')
+    pg.fill("#pb_en", "Esvaziamento da impressora")
+    pg.check("#pb_rc")
+    pg.fill("#pb_rn", "2")
+    pg.select_option("#pb_ru", "m")
+    r.click("#pb_save")
+    assert "aviso a cada 2 meses" in pg.inner_text("#mdb"), pg.inner_text("#mdb")
+    assert pg.evaluate("problemsOf('Impressora')[%d]" % idx) == "Esvaziamento da impressora"
+    r.click("#dn_no")
+    r.click("#nfab")
+    pg.select_option("#f_v", dev)
+    r.wait()
+    r.click('[data-pk="Esvaziamento da impressora"]')
+    assert pg.is_checked("#f_rc") and pg.input_value("#f_rn") == "2" and pg.input_value("#f_ru") == "m"
+    assert pg.eval_on_selector("#f_p", "e => e.disabled && e.value") == "alta"
+    r.click('[data-pk="Esvaziamento da impressora"]')  # desmarcar o problema desfaz o aviso automático
+    assert not pg.is_checked("#f_rc")
+    r.click("#dn_no")
+
+    # Cancelar a programada encerra a repetição.
+    r.tab("tarefas")
+    r.click(f'[data-a="cancelar"][data-i="{nxt["id"]}"]')
+    assert next(x for x in tasks() if x["id"] == nxt["id"])["status"] == "cancelada"
+
+    # Alerta na Área de Trabalho: aparelho novo, problema periódico (a cada 2 meses) nunca feito e nada marcado.
+    card = f'.device-card[data-did="{dev}"]'
+    r.tab("workstation")
+    assert pg.locator(card + " .device-alert").count() == 0  # cadastrado hoje: ainda longe do fim
+    created = ms(9, 0, 11) - 40 * 86400000  # cadastrado há 40 dias → vence em ~21 dias (falta menos de 1 mês)
+    pg.evaluate(f"""() => {{ const db = JSON.parse(localStorage.getItem('tm_db_v1'));
+                             db['devices/{dev}'].created = {created}; localStorage.setItem('tm_db_v1', JSON.stringify(db)); }}""")
+    pg.reload()
+    pg.wait_for_selector("nav button")
+    r.tab("workstation")
+    alert = pg.inner_text(card + " .device-alert")
+    assert "Esvaziamento da impressora" in alert and "vence em" in alert, alert
+    assert pg.locator(card + " .alert-ping").count() == 1
+    r.shot("periodica-alerta")
+    # Marcada uma tarefa desse problema, o alerta some.
+    r.click("#nfab")
+    pg.select_option("#f_v", dev)
+    r.wait()
+    r.click('[data-pk="Esvaziamento da impressora"]')
+    pg.check(f'.f_e[value="{me}"]')
+    r.click("#f_go")
+    r.tab("workstation")
+    assert pg.locator(card + " .device-alert").count() == 0
+
+    # Agenda por dia, semana e mês; ir para uma data em 2 cliques (campo de data → dia).
+    r.tab("agenda")
+    r.click('[data-av="semana"]')
+    assert pg.locator(".week-day").count() == 7
+    assert "Esvaziada" not in pg.inner_text(".week-grid")  # títulos, não relatos
+    week_txt = pg.inner_text(".week-grid")
+    assert "Esvaziar Impressora" in week_txt, week_txt  # a de amanhã (12/11)
+    r.shot("agenda-semana")
+    r.click('[data-av="mes"]')
+    assert pg.locator(".month-day").count() == 30 and "Novembro de 2026" in pg.inner_text(".agenda-label")
+    r.click('[data-day="1"]')
+    assert "Dezembro de 2026" in pg.inner_text(".agenda-label")
+    pg.fill("#ag_d", "2027-02-11")
+    r.wait()
+    assert "Fevereiro de 2027" in pg.inner_text(".agenda-label")
+    pg.set_viewport_size({"width": 1280, "height": 900})
+    r.click('[data-agtoday="1"]')
+    r.click('[data-av="mes"]')
+    r.click('[data-agday="%d"]' % ms(0, 0, 11))
+    r.shot("agenda-mes-dia")  # tocar no dia abre a visão Dia
+    assert pg.locator('[data-av="dia"].primary').count() == 1
+    assert "11/11/2026" in pg.inner_text(".agenda-label")
+    r.click('[data-av="mes"]')
+    r.shot("agenda-mes-desktop")
+    r.click('[data-av="semana"]')
+    r.shot("agenda-semana-desktop")
+    r.click('[data-av="dia"]')
+    pg.fill("#ag_d", "2026-11-20")
+    r.wait()
+    assert "fora da semana atual" in pg.inner_text("#app") and pg.locator(".slot[data-t]").count() == 0
+    r.click('[data-agtoday="1"]')
+    assert pg.locator(".slot[data-t]").count() > 0  # hoje: horários livres clicáveis
+    pg.set_viewport_size({"width": 420, "height": 1400})
     assert not r.errors, r.errors
     ctx.close()
     return len(r.shots)

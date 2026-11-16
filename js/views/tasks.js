@@ -8,10 +8,11 @@ function viewTasks() {
   // Funcionário: as que executa; solicitante: as que pediu; administrador: ambas.
   const role = state.me.role;
   const mine = (t) => (role !== 'sol' && t.emp === state.uid) || (role !== 'func' && t.req === state.uid);
-  const statuses = history ? FINISHED : ['aguardando', 'pendente', 'agendada'];
+  const statuses = history ? FINISHED : ['aguardando', 'pendente', 'agendada', 'programada'];
   const list = allTasks()
     .filter((t) => mine(t) && statuses.includes(t.status))
-    .sort((a, b) => (history ? finishedAt(b) - finishedAt(a) : b.created - a.created));
+    .sort((a, b) => (history ? finishedAt(b) - finishedAt(a)
+      : (a.status === 'programada') - (b.status === 'programada') || b.created - a.created));
 
   const open = history ? [] : openTasksForMe().sort((a, b) => b.created - a.created);
   return '<div class="row toolbar">'
@@ -60,7 +61,11 @@ function problemPicker(deviceId) {
       + ' ainda não tem problemas pré-definidos. Descreva o problema normalmente.</p>';
   }
   return '<label>Problema da categoria ' + esc(d.area) + '</label><input type="hidden" id="f_k" value="">'
-    + '<div class="row">' + each(list, (n) => '<button type="button" class="small" data-pk="' + esc(n) + '">' + esc(n) + '</button>') + '</div>'
+    + '<div class="row">' + each(list, (n) => {
+      const rec = problemRecurrence(d.area, n);
+      return '<button type="button" class="small" data-pk="' + esc(n) + '"'
+        + (rec ? ' title="Periódico: ' + recurrenceLabel(rec) + '">' + esc(n) + ' ⟳' : '>' + esc(n)) + '</button>';
+    }) + '</div>'
     + '<p class="muted">Toque no problema, ou deixe sem selecionar para descrever outro problema.</p>';
 }
 
@@ -74,6 +79,7 @@ function newTaskForm() {
     + '</select><p class="muted">Ao vincular um aparelho, a tarefa vira de manutenção e só quem atende a categoria dele pode recebê-la.</p>'
     + '<div id="f_ebox">' + employeePicker('') + '</div>'
     + '<div id="f_kbox">' + problemPicker('') + '</div>'
+    + '<div id="f_rbox">' + recurrencePicker('') + '</div>'
     + '<label>Prioridade</label><select id="f_p"><option value="neutra">Neutra</option><option value="alta">Alta</option><option value="baixa">Baixa</option></select>'
     + '<p class="muted">A duração será definida pelo funcionário ao agendar.</p>'
     + '<p class="muted error" id="f_m"></p><button class="primary" id="f_go">Enviar tarefa</button></div>';
@@ -101,10 +107,52 @@ function readNewTaskForm() {
       if (!form.desc) form.desc = problem + ' — ' + device.name;
     }
     if (form.title && !/^Manuten/.test(form.title)) form.title = 'Manutenção: ' + form.title;
+    const { rec, error } = readRecurrence('f');
+    if (error) return { error };
+    if (rec) {
+      form.rec = rec;
+      form.prio = 'alta';
+    }
   }
   if (!device && !form.emps.length) form.cat = $('#f_cat')?.value || null;
   if (!form.title || !form.desc) return { error: 'Informe título e descrição.' };
   return { form };
+}
+
+/** Campos do aviso periódico (ids <prefixo>_rc / _rn / _ru), já preenchidos com `rec` se houver. */
+function recurrenceFields(prefix, rec = null) {
+  const unit = rec?.u || 'm';
+  return '<label class="check"><input type="checkbox" id="' + prefix + '_rc"' + when(rec, ' checked') + '>Definir aviso (manutenção periódica)</label>'
+    + '<div class="row nowrap recurrence"><span>A cada</span>'
+    + '<input type="number" id="' + prefix + '_rn" min="1" max="999" value="' + (rec?.n || 1) + '" inputmode="numeric" aria-label="Intervalo">'
+    + '<select id="' + prefix + '_ru" aria-label="Unidade">'
+    + each(Object.entries(RECURRENCE_UNITS), ([u, [, many]]) => '<option value="' + u + '"' + when(u === unit, ' selected') + '>' + many + '</option>')
+    + '</select></div>';
+}
+
+/** Lê os campos do aviso: { rec } (null se desmarcado) ou { error }. */
+function readRecurrence(prefix) {
+  if (!$('#' + prefix + '_rc')?.checked) return { rec: null };
+  const n = Math.floor(+$('#' + prefix + '_rn').value);
+  if (!(n >= 1 && n <= 999)) return { error: 'Informe o intervalo do aviso (1 a 999).' };
+  return { rec: { n, u: $('#' + prefix + '_ru').value } };
+}
+
+/** Liga/desliga o aviso na Nova tarefa (manutenção periódica é sempre de prioridade alta). */
+function setRecurrenceOn(on) {
+  const box = $('#f_rc');
+  if (!box) return;
+  box.checked = on;
+  if (on) $('#f_p').value = 'alta';
+  $('#f_p').disabled = on;
+}
+
+/** Aviso de manutenção periódica (só com aparelho vinculado). */
+function recurrencePicker(deviceId) {
+  if (!state.devices[deviceId]) return '';
+  return recurrenceFields('f')
+    + '<p class="muted">Cria a tarefa agora com prioridade <b>alta</b>; ao ser concluída, a próxima já fica marcada para a data seguinte. '
+    + 'Ela não deixa o aparelho inoperante: o status só muda para "Em manutenção" quando for iniciada.</p>';
 }
 
 /** Seleciona/deseleciona um problema pré-definido e preenche o título. */
@@ -116,4 +164,18 @@ function toggleProblem(name) {
   $$('[data-pk]').forEach((b) => b.classList.toggle('primary', hidden.value !== '' && b.dataset.pk === hidden.value));
   if (!wasOn) title.value = name;
   else if (title.value === name) title.value = '';
+  // Problema com aviso periódico padrão: preenche (ou desfaz) a manutenção periódica.
+  const device = state.devices[$('#f_v')?.value || ''];
+  const rec = device && hidden.value ? problemRecurrence(device.area, hidden.value) : null;
+  const box = $('#f_rc');
+  if (!box) return;
+  if (rec) {
+    $('#f_rn').value = rec.n;
+    $('#f_ru').value = rec.u;
+    setRecurrenceOn(true);
+    box.dataset.auto = '1';
+  } else if (box.dataset.auto) {
+    setRecurrenceOn(false);
+    delete box.dataset.auto;
+  }
 }

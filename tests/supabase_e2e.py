@@ -264,6 +264,32 @@ def main():
             r = out.db_call(f"await db.call('join_with_invite', {{ code: 'codigo-inexistente' }})")
             assert r.startswith("erro"), r
 
+            # Problema periódico: o funcionário define o aviso e ele vale para toda a empresa, em tempo real.
+            idx = func.pg.evaluate("problemsOf('Impressora').indexOf('Atolamento')")
+            assert idx >= 0, idx
+            func.pg.evaluate(f"saveProblem('Impressora', {idx}, 'Esvaziamento E2E', {{ n: 2, u: 'm' }})")
+            check = "problemsOf('Impressora').includes('Esvaziamento E2E') && problemRecurrence('Impressora', 'Esvaziamento E2E')?.n === 2"
+            for who in (func, admin, sol):
+                try:
+                    who.pg.wait_for_function(check, timeout=15000)
+                except Exception:
+                    raise AssertionError(f"[{who.label}] aviso não chegou: " + json.dumps(who.pg.evaluate("state.company?.probRec")))
+            # Quem abre tarefas já vê o problema com aviso na Nova tarefa (periódica marcada ao escolher).
+            # (Usa o admin: a tela do solicitante perdeu o aparelho na tentativa de exclusão bloqueada acima.)
+            admin.click("#nfab")
+            admin.pg.select_option("#f_v", dev_id)
+            admin.wait()
+            admin.click('[data-pk="Esvaziamento E2E"]')
+            assert admin.pg.is_checked("#f_rc") and admin.pg.input_value("#f_rn") == "2"
+            admin.click("#dn_no")
+            # O funcionário pode gravar a próxima ocorrência de uma periódica (só programada e com rec).
+            cid = func.pg.evaluate("state.company.id")
+            base = f"company: '{cid}', req: '{sol_id}', emp: '{func_id}', title: 'Periódica E2E', prio: 'alta', hist: []"
+            r = func.db_call(f"await db.doc('tasks/rec-{STAMP}').set({{ id: 'rec-{STAMP}', {base}, rec: {{ n: 2, u: 'm' }}, status: 'programada' }})")
+            assert r == "ok", r
+            r = func.db_call(f"await db.doc('tasks/norec-{STAMP}').set({{ id: 'norec-{STAMP}', {base}, status: 'aguardando' }})")
+            assert r.startswith("erro"), r
+
             # Persistência: recarregar mantém a sessão e os dados vêm do banco.
             func.pg.reload()
             func.pg.wait_for_selector("nav button", timeout=20000)

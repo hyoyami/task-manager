@@ -9,6 +9,42 @@ const categoryOfDevice = (d) => categoryByName(d.area);
 /** O usuário gerencia o aparelho na Área de Trabalho? (executa tarefas e a categoria é da função dele) */
 const managesDevice = (profile, d) => executes(profile) && canSeeCategory(profile, d.area);
 
+// ---------- Alerta de manutenção periódica ----------
+const DAY = 24 * 60 * MIN;
+/** Antecedência do alerta: metade do intervalo, no máximo 30 dias (a cada 2 meses → avisa faltando 1 mês). */
+const ALERT_LEAD_MAX = 30 * DAY;
+
+/**
+ * Problemas periódicos da categoria (com aviso padrão) que o aparelho está para vencer sem nada marcado.
+ * Conta a partir da última conclusão desse problema no aparelho (ou do cadastro do aparelho, se nunca foi feito).
+ * Com uma tarefa aberta/programada desse problema para o aparelho, não há alerta.
+ * @returns {{prob, rec, due, late}[]} do mais urgente para o menos
+ */
+function periodicAlerts(d) {
+  const recs = state.company?.probRec?.[d.area] || {};
+  const problems = problemsOf(d.area);
+  const now = Date.now();
+  const out = [];
+  for (const [prob, rec] of Object.entries(recs)) {
+    if (!problems.includes(prob)) continue;
+    const related = allTasks().filter((t) => t.dev === d.id && t.preset === prob);
+    if (related.some((t) => !FINISHED.includes(t.status))) continue; // já está marcado
+    const done = related.filter((t) => t.status === 'concluida').map(finishedAt);
+    const base = done.length ? Math.max(...done) : (d.created || now);
+    const due = addRecurrence(base, rec);
+    const lead = Math.min((due - startOfDay(base)) / 2, ALERT_LEAD_MAX);
+    if (now >= due - lead) out.push({ prob, rec, due, late: now >= due });
+  }
+  return out.sort((a, b) => a.due - b.due);
+}
+
+/** "vence em 12 dias" / "vence hoje" / "atrasada desde 11/01/2027". */
+function alertText(a) {
+  if (a.late) return 'atrasada desde ' + new Date(a.due).toLocaleDateString('pt-BR');
+  const days = Math.ceil((a.due - Date.now()) / DAY);
+  return days <= 1 ? 'vence ' + (startOfDay(a.due) === startOfDay(Date.now()) ? 'hoje' : 'amanhã') : 'vence em ' + days + ' dias';
+}
+
 /** Todas as categorias conhecidas na empresa (para os tutoriais). */
 function allCategories() {
   const names = new Set(companyCategories().map((c) => c.name));

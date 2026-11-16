@@ -7,6 +7,7 @@
      cats:   [{ name, icon }]          categorias criadas pela empresa (além das de fábrica),
      hidden: [nome]                    categorias de fábrica excluídas,
      probs:  { categoria: [problema] } problemas de manutenção (senão PRESETS),
+     probRec: { categoria: { problema: {n, u} } }  aviso periódico padrão do problema (opcional),
      cargos: { chave: { n, cats: [categoria] } }  funções e as categorias que cada uma vê
    }
    invites/<código> = { company, role, by, created }   link: ?convite=<código>
@@ -68,6 +69,44 @@ const renameCompany = (name) => updateCompany({ name });
 const needsCompanySetup = () => isAdmin() && state.company?.setup === false;
 const finishCompanySetup = () => updateCompany({ setup: true });
 const saveProblems = (area, list) => updateCompany({ probs: { ...(state.company.probs || {}), [area]: list } });
+
+/** Aviso periódico padrão do problema ({n, u}) ou null. */
+const problemRecurrence = (area, name) => state.company?.probRec?.[area]?.[name] || null;
+
+/**
+ * Edita o problema `index` da categoria: novo nome e aviso periódico (null = sem aviso).
+ * Renomear leva junto os passos do tutorial desse problema.
+ */
+async function saveProblem(area, index, name, rec) {
+  const list = [...problemsOf(area)];
+  const old = list[index];
+  if (old === undefined) return;
+  list[index] = name;
+  const recs = { ...(state.company.probRec?.[area] || {}) };
+  delete recs[old];
+  if (rec) recs[name] = rec;
+  await updateCompany({
+    probs: { ...(state.company.probs || {}), [area]: list },
+    probRec: { ...(state.company.probRec || {}), [area]: recs },
+  });
+  if (name !== old) {
+    for (const step of Object.values(state.tutorials).filter((x) => x.cat === area && x.prob === old)) {
+      state.tutorials[step.id] = { ...step, prob: name };
+      await doc('tutorials/' + step.id).update({ prob: name });
+    }
+  }
+}
+
+/** Exclui o problema `index` da categoria (e o aviso dele). */
+async function deleteProblem(area, index) {
+  const list = problemsOf(area);
+  const recs = { ...(state.company.probRec?.[area] || {}) };
+  delete recs[list[index]];
+  await updateCompany({
+    probs: { ...(state.company.probs || {}), [area]: list.filter((_, i) => i !== +index) },
+    probRec: { ...(state.company.probRec || {}), [area]: recs },
+  });
+}
 
 /** Nova categoria (com ícone PNG); passa a valer para todas as funções. */
 async function addCategory(name, icon) {

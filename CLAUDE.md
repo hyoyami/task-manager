@@ -69,7 +69,8 @@ Testes: `pip install playwright && playwright install chromium`, depois
 
 ## Modelo de dados (coleções do banco)
 - `companies/<id>` — `{name, admin(uid), created, cats:[{name,icon}] (criadas), hidden:[] (de fábrica excluídas),
-  probs:{categoria:[problema]}, cargos:{chave:{n, cats:[categoria]}}}` (funções e as categorias que cada uma vê).
+  probs:{categoria:[problema]}, probRec:{categoria:{problema:{n,u}}} (aviso periódico padrão do problema),
+  cargos:{chave:{n, cats:[categoria]}}}` (funções e as categorias que cada uma vê).
 - `invites/<código>` — `{company, role:'sol'|'func', by, created}`. Link: `?convite=<código>` (entra direto, ativo).
 - `cred/<id>` — só no modo local: `{salt, hash, aid}` credenciais (PBKDF2 no navegador). `id` = hash do e-mail.
 - `profiles/<aid>` — `{name, role:'admin'|'func'|'sol', company, status:'pending'|'active', requestedAt, email, ck,
@@ -83,6 +84,8 @@ Testes: `pip install playwright && playwright install chromium`, depois
   dev,devName,devArea,devIp,devPrev,preset,tipo:'manutencao', pool, cat}`. `devPrev` = status do aparelho antes da tarefa.
   Tarefa aberta para a equipe: `pool:true`, `emp:null`, `cat` = categoria (do aparelho ou escolhida; `null` = geral).
   Status: `aguardando` → `pendente`/`agendada` → `andamento` ⇄ `pausada` → `concluida` | `cancelada`.
+  Manutenção periódica: `rec:{n, u:'d'|'m'|'y'}`; a próxima ocorrência nasce `programada` com `want` = data,
+  `series` = id da primeira e `dur` herdada.
 - `devices/<id>` — `{company, owner (quem cadastrou), name, ip, area, status:'Operacional|Inoperante|Em manutenção|Fora de uso',
   log[], created}`. Aparelho é **da empresa** (não tem responsável fixo).
 - `tasks`, `notifs`, `tutorials` também têm `company`.
@@ -128,6 +131,11 @@ Testes: `pip install playwright && playwright install chromium`, depois
   de urgência menor e ocupa o primeiro horário livre; essas são empurradas para depois, na mesma ordem
   (`pushBackLowerPriority()`). Tarefas iniciadas e as de urgência igual/maior não se mexem (FIFO entre iguais).
   Arrastar para um horário é escolha manual e não reorganiza nada.
+- Agenda com visões **Dia / Semana / Mês** (`ui.agendaView`), setas que andam pela unidade da visão, botão "Hoje" e
+  campo de data (`#ag_d`) para ir a qualquer data. Qualquer data pode ser **vista**; agendar (horários livres
+  clicáveis, arrastar, "Tarefas para agendar") só na semana corrente. Semana/mês mostram as tarefas com horário e as
+  periódicas programadas ("Prog."); tocar num dia abre a visão Dia. Campos com `data-live` (valor vindo do estado,
+  ex.: data da agenda) não são preservados pelo `renderApp`.
 - Agenda: em telas ≥ 900px, agenda à esquerda e painel "Em andamento" fixo à direita (cartão detalhado com
   progresso, tempo decorrido/restante, dados e histórico; atualiza a cada 30 s). No celular o painel fica no topo.
   Clicar no cartão fixo (fora dos botões) rola até a tarefa na agenda e a destaca (`focusTaskInAgenda()`).
@@ -140,6 +148,19 @@ Testes: `pip install playwright && playwright install chromium`, depois
   iniciada (andamento/pausada) → "Em manutenção" (amarelo); ao encerrar, se o status ainda for automático
   (Inoperante/Em manutenção): com outra tarefa aberta, segue o que ela pede; sem nenhuma, concluída → "Operacional",
   cancelada/recusada → volta ao `devPrev`. Ver `js/domain/tasks.js` (seção "Status do aparelho vinculado").
+- **Manutenção periódica** ("Definir aviso" na Nova tarefa, só com aparelho): intervalo em dias/meses/anos;
+  a tarefa é criada já com prioridade **alta** e **não** deixa o aparelho inoperante (só vira "Em manutenção"
+  ao iniciar; ao concluir volta a "Operacional"). Ao concluir, `scheduleNextOccurrence()` cria a próxima
+  (`programada`, data = conclusão + intervalo; registra no log do aparelho). `activateDueTasks()` (ao receber
+  tarefas e a cada 30 s, no navegador do responsável/solicitante) passa a programada para pendente (ou
+  aguardando, sem duração/responsável) na semana da data, e ela é encaixada por urgência. Cancelar a
+  programada encerra a repetição. Problemas da categoria são editáveis (nome + aviso padrão, `openProblemEdit()` /
+  `saveProblem()`; renomear leva junto o tutorial): escolher um problema com aviso já marca a periódica na Nova tarefa.
+  **Alerta na Área de Trabalho** (`periodicAlerts()` em domain/devices.js): para cada problema com aviso padrão
+  da categoria, se o aparelho não tem tarefa aberta/programada desse problema, conta o prazo desde a última
+  conclusão dele (ou desde o cadastro do aparelho) e mostra o aviso no cartão (ponto pulsando, laranja; vermelho
+  se atrasado) a partir de metade do intervalo antes do fim, no máximo 30 dias antes (a cada 2 meses → falta 1 mês).
+  A ligação é pelo nome do problema (`task.preset`). No banco, o responsável pode inserir a próxima ocorrência (política `tasks_insert`).
 - O funcionário define o horário de trabalho (entrada, saída e almoço) em Menu → "Horário de trabalho e folgas"
   (validação: entrada < almoço início < almoço fim < saída).
 - Folga nova (semanal ou pontual) ou mudança no horário de trabalho devolve para "pendente" as tarefas

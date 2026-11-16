@@ -44,6 +44,8 @@ const ui = {
   agendaEmp: null,
   /** Dia exibido na agenda (início do dia, ms). */
   agendaDay: startOfDay(Date.now()),
+  /** Visão da agenda: 'dia' | 'semana' | 'mes'. */
+  agendaView: 'dia',
   /** Sugestão de reorganização pendente de aprovação: [{task, start}]. */
   proposal: null,
   /** Tarefas com histórico expandido: { [id]: true }. */
@@ -84,6 +86,8 @@ const ui = {
   modal: {
     doneTaskId: null,
     category: null,
+    /** Problema em edição (índice na lista da categoria). */
+    problemIndex: null,
     categoryToDelete: null,
     tutorial: null, // [categoria, problema]
     group: null, // grupo de aparelhos sendo renomeado
@@ -102,6 +106,8 @@ function resetSession() {
   Object.assign(ui, {
     tab: 'agenda',
     agendaEmp: null,
+    agendaDay: startOfDay(Date.now()),
+    agendaView: 'dia',
     proposal: null,
     openHistory: {},
     selectedTask: null,

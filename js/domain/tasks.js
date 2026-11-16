@@ -75,6 +75,7 @@ async function createTasks(form) {
       ...form.link,
       emp,
       ...(pool ? { pool: true, cat: device ? device.area : (form.cat || null) } : {}),
+      ...(form.rec ? { rec: form.rec } : {}),
       req: state.uid,
       status: 'aguardando',
       created: now,
@@ -82,7 +83,8 @@ async function createTasks(form) {
       start: null,
       initial: null,
       hist: [{ t: now, x: 'Tarefa criada' },
-        { t: now, x: pool ? 'Aberta para a equipe' + (device || form.cat ? ' (' + (device ? device.area : form.cat) + ')' : '') : 'Enviada ao funcionário para aceite' }],
+        { t: now, x: pool ? 'Aberta para a equipe' + (device || form.cat ? ' (' + (device ? device.area : form.cat) + ')' : '') : 'Enviada ao funcionário para aceite' },
+        ...(form.rec ? [{ t: now, x: 'Manutenção periódica: ' + recurrenceLabel(form.rec) }] : [])],
       ...(device ? { devPrev: device.status || 'Operacional' } : {}),
     });
     const kind = 'Nova tarefa ' + PRIORITY_LABEL[form.prio].toLowerCase();
@@ -94,7 +96,8 @@ async function createTasks(form) {
       notify(emp, kind + ' para aceitar: ' + quote(form));
     }
   }
-  if (device) {
+  // Manutenção periódica não deixa o aparelho inoperante: o status só muda quando ela é iniciada.
+  if (device && !form.rec) {
     // Fica inoperante até o funcionário iniciar (se já houver outra em execução, segue em manutenção).
     const started = allTasks().some((o) => o.dev === device.id && STARTED.includes(o.status));
     await setDeviceStatus(device.id, started ? MAINTENANCE : INOPERATIVE, 'tarefa ' + quote(form) + ' aberta por ' + nameOf(state.uid));
@@ -112,14 +115,23 @@ const STARTED = ['andamento', 'pausada'];
 
 /** Status pedido pelas tarefas ainda abertas do aparelho (null se não houver nenhuma). */
 function statusFromOpenTasks(devId) {
-  const open = allTasks().filter((o) => o.dev === devId && !FINISHED.includes(o.status));
+  // Periódicas só contam depois de iniciadas (antes disso o aparelho funciona normalmente).
+  const open = allTasks().filter((o) => o.dev === devId && !FINISHED.includes(o.status)
+    && !(o.rec && !STARTED.includes(o.status)));
   if (!open.length) return null;
   return open.some((o) => STARTED.includes(o.status)) ? MAINTENANCE : INOPERATIVE;
 }
 
 /** Funcionário iniciou a tarefa: o aparelho passa a "Em manutenção". */
 async function markDeviceStarted(t) {
-  if (t.dev) await setDeviceStatus(t.dev, MAINTENANCE, 'tarefa ' + quote(t) + ' iniciada por ' + nameOf(t.emp));
+  if (!t.dev) return;
+  const d = state.devices[t.dev];
+  // Periódica: o "status anterior" é o do momento em que ela começa (para voltar a ele se for cancelada).
+  if (t.rec && d && !AUTO_DEVICE_STATUSES.includes(d.status)) {
+    state.tasks[t.id] = { ...state.tasks[t.id], devPrev: d.status || 'Operacional' };
+    await doc('tasks/' + t.id).update({ devPrev: d.status || 'Operacional' });
+  }
+  await setDeviceStatus(t.dev, MAINTENANCE, 'tarefa ' + quote(t) + ' iniciada por ' + nameOf(t.emp));
 }
 
 /** Muda o status do aparelho (se for diferente) e registra no log. */
@@ -302,6 +314,7 @@ async function taskAction(id, action, summary) {
       + (summary ? ' — Relato: ' + summary : ' — sem relato'));
   }
   if (t.dev && ['concluir', 'cancelar', 'recusar'].includes(action)) await releaseDevice(t, action);
+  if (action === 'concluir' && t.rec) await scheduleNextOccurrence(state.tasks[id]);
   if (['concluir', 'cancelar', 'recusar'].includes(action)) {
     const extra = action === 'concluir' && summary ? ' — ' + summary.slice(0, 120) : '';
     notify(t.req, 'Tarefa ' + quote(t) + ': ' + label.toLowerCase() + extra);
@@ -374,3 +387,81 @@ async function requeueForTimeOff(isBlocked, reason) {
 /** Momento em que a tarefa foi concluída/cancelada (pelo histórico). */
 const finishedAt = (t) =>
   (t.hist || []).slice().reverse().find((h) => /Conclu|Cancel|Recus/.test(h.x))?.t || t.created;
+
+// ---------- Manutenção periódica ----------
+// Tarefa com `rec: {n, u}` (u = 'd' | 'm' | 'y'). Ao ser concluída, nasce a próxima ocorrência
+// (mesmo aparelho, responsável e duração, prioridade alta) com status "programada" e `want` = data.
+// Na semana dessa data ela vira pendente (ou aguardando, sem duração/responsável) e entra na agenda.
+
+/** "a cada 3 meses". */
+const recurrenceLabel = (rec) => 'a cada ' + plural(rec.n, ...RECURRENCE_UNITS[rec.u]);
+
+/** Data (início do dia) `rec` depois de `from`. */
+function addRecurrence(from, rec) {
+  const d = new Date(startOfDay(from));
+  if (rec.u === 'd') d.setDate(d.getDate() + rec.n);
+  if (rec.u === 'm') {
+    const day = d.getDate();
+    d.setDate(1);
+    d.setMonth(d.getMonth() + rec.n);
+    d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate())); // 31/01 + 1 mês = 28/02
+  }
+  if (rec.u === 'y') {
+    const month = d.getMonth();
+    d.setFullYear(d.getFullYear() + rec.n);
+    if (d.getMonth() !== month) d.setDate(0); // 29/02 → 28/02
+  }
+  return d.getTime();
+}
+
+/** Cria a próxima ocorrência da periódica concluída `t`. */
+async function scheduleNextOccurrence(t) {
+  const now = Date.now();
+  const due = addRecurrence(now, t.rec);
+  const ref = newDoc('tasks');
+  const keep = ['company', 'title', 'desc', 'dev', 'devName', 'devArea', 'devIp', 'tipo', 'preset', 'pool', 'cat', 'req', 'emp', 'rec'];
+  const next = Object.fromEntries(keep.filter((k) => t[k] !== undefined).map((k) => [k, t[k]]));
+  await ref.set({
+    ...next,
+    id: ref.id,
+    prio: 'alta',
+    dur: t.planDur || t.dur || null,
+    status: 'programada',
+    created: now,
+    want: due,
+    start: null,
+    initial: null,
+    series: t.series || t.id,
+    hist: [{ t: now, x: 'Manutenção periódica (' + recurrenceLabel(t.rec) + '): próxima ocorrência programada para '
+      + new Date(due).toLocaleDateString('pt-BR') }],
+  });
+  if (t.dev) await addDeviceLog(t.dev, 'Manutenção periódica ' + quote(t) + ': próxima em ' + new Date(due).toLocaleDateString('pt-BR'));
+  notify(t.req, 'Manutenção periódica ' + quote(t) + ' concluída; próxima em ' + new Date(due).toLocaleDateString('pt-BR'));
+  await activateDueTasks();
+}
+
+let activatingDue = false;
+
+/**
+ * Periódicas programadas cuja data cai na semana atual (ou já passou) entram na agenda.
+ * Roda no navegador do responsável (que também as encaixa) e do solicitante.
+ */
+async function activateDueTasks() {
+  if (activatingDue || !state.uid) return;
+  const limit = currentWeek().e;
+  const due = allTasks().filter((t) => t.status === 'programada' && (t.want || 0) < limit
+    && (t.emp === state.uid || t.req === state.uid));
+  if (!due.length) return;
+  activatingDue = true;
+  try {
+    for (const t of due) {
+      const ready = t.emp && t.dur;
+      await commitTask(t.id, { status: ready ? 'pendente' : 'aguardando' },
+        'Chegou a semana da manutenção periódica (' + new Date(t.want).toLocaleDateString('pt-BR') + ')');
+      notify(t.emp, 'Manutenção periódica ' + quote(t) + ' entrou na agenda desta semana');
+    }
+    if (due.some((t) => t.emp === state.uid)) await scheduleWaiting(state.uid);
+  } finally {
+    activatingDue = false;
+  }
+}

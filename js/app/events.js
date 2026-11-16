@@ -47,12 +47,23 @@ async function onChange(e) {
       ui.deviceFilter[x.id === 'af_c' ? 'cat' : 'status'] = x.value;
       x.blur();
       render();
+    } else if (x.id === 'ag_d') {
+      // Ir para a data: abre a visão (dia/semana/mês) no período dessa data.
+      if (x.value) {
+        ui.agendaDay = parseDateInput(x.value);
+        x.blur();
+        render();
+      }
     } else if (x.id === 'selEmp') {
       ui.agendaEmp = x.value;
       render();
     } else if (x.id === 'f_v') {
       $('#f_kbox').innerHTML = problemPicker(x.value);
       $('#f_ebox').innerHTML = employeePicker(x.value);
+      $('#f_rbox').innerHTML = recurrencePicker(x.value);
+      $('#f_p').disabled = false;
+    } else if (x.id === 'f_rc') {
+      setRecurrenceOn(x.checked);
     } else if (x.classList.contains('m-role')) {
       await setMemberRole(x.dataset.id, x.value);
       say(nameOf(x.dataset.id) + ' agora é ' + ROLE_LABEL[x.value] + '.');
@@ -83,9 +94,9 @@ async function onChange(e) {
 function onKeyDown(e) {
   if (e.key !== 'Enter') return;
   const id = e.target.id || '';
-  if (id === 'pb_n' || id === 'gr_n') {
+  if (id === 'pb_n' || id === 'gr_n' || id === 'pb_en') {
     e.preventDefault();
-    $(id === 'pb_n' ? '#pb_add' : '#gr_ok').click();
+    $({ pb_n: '#pb_add', gr_n: '#gr_ok', pb_en: '#pb_save' }[id]).click();
   } else if (!state.me && !state.uid && id.startsWith('a_') && e.target.tagName !== 'BUTTON') {
     e.preventDefault();
     $('#a_go')?.click();

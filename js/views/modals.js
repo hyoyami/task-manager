@@ -63,6 +63,7 @@ function openDevice(id) {
     + each(DEVICE_STATUSES, (s) => '<option' + when(s === d.status, ' selected') + '>' + s + '</option>') + '</select>'
     + '<label>Registrar no log</label><textarea id="dv_t" rows="2" placeholder="Ex.: troca de toner, formatação, cabo substituído…"></textarea>'
     + '<p><button class="small primary" data-lg="' + id + '">Registrar</button></p>'
+    + recurringOfDevice(d)
     + deviceLogPreview(d)
     + when(canDeleteDevice(d), '<p><button class="small danger" data-devdel="' + d.id + '">Excluir aparelho</button></p>')
     + closeButton());
@@ -76,8 +77,24 @@ function openDeviceReadOnly(id) {
   openModal('<h2 class="title-upper">' + esc(d.name) + '</h2>'
     + '<p>' + tag(esc(d.area)) + ' ' + tag('<span class="status-dot" style="background:' + st.color + '"></span>' + st.label) + '</p>'
     + '<div class="muted">IP: ' + esc(d.ip || '—') + ' · Responsável: ' + esc(nameOf(d.owner)) + '</div>'
+    + recurringOfDevice(d)
     + deviceLogPreview(d)
     + closeButton());
+}
+
+/** Manutenções periódicas em aberto do aparelho (próxima data e intervalo). */
+function recurringOfDevice(d) {
+  const list = allTasks().filter((t) => t.dev === d.id && t.rec && !FINISHED.includes(t.status));
+  const alerts = periodicAlerts(d);
+  const warn = when(alerts.length, '<label>Avisos</label>' + each(alerts, (a) => '<div class="device-alert">'
+    + '<b>' + esc(a.prob) + '</b> (' + recurrenceLabel(a.rec) + ') — ' + alertText(a)
+    + '. Nenhuma tarefa marcada: abra uma em Nova tarefa.</div>'));
+  if (!list.length) return warn;
+  const when_ = (t) => (t.status === 'programada' ? 'próxima em ' + new Date(t.want).toLocaleDateString('pt-BR')
+    : t.start ? STATUS_LABEL[t.status].toLowerCase() + ' · ' + fmtDayTime(t.start) : STATUS_LABEL[t.status].toLowerCase());
+  return warn + '<label>Manutenções periódicas</label><div class="history">'
+    + each(list, (t, i) => when(i, '<br>') + '<b>' + esc(t.preset || t.title) + '</b> — ' + recurrenceLabel(t.rec) + ' · ' + when_(t))
+    + '</div>';
 }
 
 // ---------- Log do aparelho ----------
@@ -128,11 +145,31 @@ function openCategory(area) {
   const list = problemsOf(area);
   openModal('<h2>' + categoryIcon(categoryByName(area)) + esc(area) + '</h2>'
     + '<p class="muted">Problemas de manutenção que o solicitante pode escolher ao criar uma tarefa para aparelhos desta categoria.</p>'
-    + (each(list, (n, i) => '<div class="row between nowrap list-row"><span>' + esc(n) + '</span>'
-      + removeButton('data-pdel="' + i + '"', 'Excluir problema') + '</div>') || '<p class="muted">Nenhum problema cadastrado.</p>')
+    + (each(list, (n, i) => {
+      const rec = problemRecurrence(area, n);
+      return '<div class="row between nowrap list-row"><span>' + esc(n)
+        + (rec ? ' <span class="muted">· aviso ' + recurrenceLabel(rec) + '</span>' : '') + '</span>'
+        + '<span class="row nowrap gap-sm"><button class="small" data-pedit="' + i + '">Editar</button>'
+        + removeButton('data-pdel="' + i + '"', 'Excluir problema') + '</span></div>';
+    }) || '<p class="muted">Nenhum problema cadastrado.</p>')
     + '<label>Novo problema</label><div class="row nowrap"><input type="text" id="pb_n" class="grow" placeholder="Ex.: Atolamento de papel">'
     + '<button class="primary" id="pb_add">Adicionar</button></div>'
     + closeButton());
+}
+
+/** Editar um problema da categoria: nome e aviso periódico padrão. */
+function openProblemEdit(area, index) {
+  const name = problemsOf(area)[index];
+  if (name === undefined) return;
+  ui.modal.category = area;
+  ui.modal.problemIndex = index;
+  openModal('<h2>Editar problema</h2><p class="muted">' + categoryIcon(categoryByName(area)) + esc(area) + '</p>'
+    + '<label for="pb_en">Nome do problema</label><input type="text" id="pb_en" maxlength="60" value="' + esc(name) + '">'
+    + recurrenceFields('pb', problemRecurrence(area, name))
+    + '<p class="muted">Com aviso, ao escolher este problema na Nova tarefa a manutenção periódica já vem marcada com este intervalo.</p>'
+    + '<div class="row between mt-12"><button data-cat="' + esc(area) + '">← Voltar</button>'
+    + '<button class="primary" id="pb_save">Salvar</button></div>');
+  setTimeout(() => $('#pb_en')?.focus(), 50);
 }
 
 function openCategoryDelete(name) {

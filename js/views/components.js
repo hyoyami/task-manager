@@ -35,8 +35,9 @@ const timeRange = (t, none = 'Sem horário') =>
 
 // ---------- Tarefas ----------
 const isOpenTask = (t) => !!t.pool && !t.emp;
-const statusTags = (t) => tag(isOpenTask(t) ? 'Aberta para a equipe' : STATUS_LABEL[t.status]) + ' ' + tag(PRIORITY_LABEL[t.prio])
-  + when(t.dev, ' ' + tag('Manutenção'));
+const statusTags = (t) => tag(isOpenTask(t) && t.status !== 'programada' ? 'Aberta para a equipe' : STATUS_LABEL[t.status])
+  + ' ' + tag(PRIORITY_LABEL[t.prio]) + when(t.dev, ' ' + tag('Manutenção'))
+  + (t.rec ? ' ' + tag('Periódica · ' + recurrenceLabel(t.rec)) : '');
 
 const deviceLine = (t) => when(t.dev, '<div class="muted">Aparelho: ' + esc(t.devName || '')
   + when(t.devArea, ' (' + esc(t.devArea) + ')')
@@ -72,7 +73,7 @@ function taskButtons(t, canControl, { withHistory = true } = {}) {
       + '<button class="small" data-d="15" data-i="' + t.id + '">+15 min</button>';
   }
   const mine = canControl || t.req === state.uid;
-  if (mine && (occupying || t.status === 'pendente' || (!canControl && t.status === 'aguardando'))) {
+  if (mine && (occupying || t.status === 'pendente' || t.status === 'programada' || (!canControl && t.status === 'aguardando'))) {
     b += actionButton('cancelar', t.id, 'Cancelar', 'danger');
   }
   if (canControl && t.preset && t.devArea && !FINISHED.includes(t.status)) {
@@ -93,6 +94,10 @@ function taskButtons(t, canControl, { withHistory = true } = {}) {
  */
 function taskTimeHeader(t) {
   const dur = when(t.dur, '<span class="tt-dur">' + t.dur + ' min</span>');
+  if (t.status === 'programada') {
+    return '<div class="task-time"><span class="tt-item"><span class="tt-label">Próxima manutenção</span><b>'
+      + new Date(t.want).toLocaleDateString('pt-BR') + '</b></span>' + dur + '</div><hr class="card-sep">';
+  }
   if (!t.start || !t.dur) return '<div class="task-time"><span class="tt-none">Horário a definir</span>' + dur + '</div><hr class="card-sep">';
   const done = t.status === 'concluida';
   const item = (label, ms) => '<span class="tt-item"><span class="tt-label">' + label + '</span><b>' + fmtTime(ms) + '</b></span>';
@@ -163,14 +168,19 @@ const deviceStatusStyle = (d) => DEVICE_STATUS_STYLE[d.status] || DEVICE_STATUS_
  */
 function deviceCard(d, own) {
   const st = deviceStatusStyle(d);
-  return '<div class="device-card' + when(own, ' draggable') + '" data-did="' + d.id + '">'
+  // Alerta de manutenção periódica: só na Área de Trabalho.
+  const alerts = ui.tab === 'workstation' ? periodicAlerts(d) : [];
+  const late = alerts.some((a) => a.late);
+  return '<div class="device-card' + when(own, ' draggable') + when(alerts.length, ' has-alert') + when(late, ' late') + '" data-did="' + d.id + '">'
     + when(own, '<span class="dv-handle" title="Arrastar para organizar" aria-hidden="true">⠿</span>')
+    + when(alerts.length, '<span class="alert-ping" aria-hidden="true"></span>')
     + '<div class="device-name">' + esc(d.name) + '</div>'
     + '<div class="device-icon">' + categoryIconLarge(categoryOfDevice(d)) + '</div>'
     + '<div class="device-ip">IP: ' + esc(d.ip || '—') + '</div>'
     + '<div class="device-status">status: ' + st.label
     + ' <span class="status-dot" style="background:' + st.color + ';box-shadow:0 0 8px ' + st.color + '"></span></div>'
     + '<div class="muted device-meta">' + esc(d.area) + '</div>'
+    + each(alerts, (a) => '<div class="device-alert" role="status"><b>Aviso:</b> ' + esc(a.prob) + ' — ' + alertText(a) + '</div>')
     + '<button class="small" ' + (own ? 'data-dev' : 'data-rodev') + '="' + d.id + '">'
     + (own ? 'Abrir / Log' : 'Ver log') + '</button></div>';
 }

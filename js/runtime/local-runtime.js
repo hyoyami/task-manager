@@ -119,7 +119,7 @@
             store[k] = Object.assign({}, v, { status: 'cancelada', hist: hist });
           } else if (v.emp === me) {
             hist.push({ t: now, x: 'Voltou a ficar aberta para a equipe: a conta do funcionário foi excluída' });
-            store[k] = Object.assign({}, v, { emp: null, pool: true, status: 'aguardando', start: null, cat: v.devArea || null, hist: hist });
+            store[k] = Object.assign({}, v, { emp: null, pool: true, status: v.status === 'programada' ? 'programada' : 'aguardando', start: null, cat: v.devArea || null, hist: hist });
           }
         }
         if ((k.indexOf('notifs/') === 0 && v.to === me) || (k.indexOf('invites/') === 0 && v.by === me)) delete store[k];

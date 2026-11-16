@@ -11,8 +11,12 @@ const ASSIGNABLE_ROLES = ['sol', 'func'];
 const PRIORITY_ORDER = { alta: 0, neutra: 1, baixa: 2 };
 const PRIORITY_LABEL = { alta: 'Alta', neutra: 'Neutra', baixa: 'Baixa' };
 
-/** Ciclo de vida: aguardando → pendente/agendada → andamento ⇄ pausada → concluida | cancelada. */
+/**
+ * Ciclo de vida: aguardando → pendente/agendada → andamento ⇄ pausada → concluida | cancelada.
+ * Manutenção periódica: a próxima ocorrência nasce "programada" e vira pendente/aguardando na semana da data.
+ */
 const STATUS_LABEL = {
+  programada: 'Programada',
   aguardando: 'Aguardando aceite',
   pendente: 'Pendente',
   agendada: 'Agendada',
@@ -26,6 +30,9 @@ const STATUS_LABEL = {
 const OCCUPYING = ['agendada', 'andamento', 'pausada'];
 /** Status ainda sem horário (aguardando aceite ou sem vaga). */
 const UNSCHEDULED = ['aguardando', 'pendente'];
+/** Intervalos da manutenção periódica (rec.u): [singular, plural]. */
+const RECURRENCE_UNITS = { d: ['dia', 'dias'], m: ['mês', 'meses'], y: ['ano', 'anos'] };
+
 /** Status finais. */
 const FINISHED = ['concluida', 'cancelada'];
 

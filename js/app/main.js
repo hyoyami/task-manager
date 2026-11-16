@@ -12,6 +12,7 @@ async function boot() {
   initEvents();
   setInterval(() => {
     if (!state.me) return;
+    activateDueTasks(); // manutenções periódicas cuja semana chegou
     // Equipe: disponibilidade "agora"; Agenda: tempo decorrido/restante da tarefa em andamento.
     if (ui.tab === 'equipe' || (ui.tab === 'agenda' && allTasks().some((t) => t.status === 'andamento'))) render();
   }, TEAM_REFRESH_MS);
