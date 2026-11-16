@@ -56,16 +56,20 @@ function cargoCard([key, cargo]) {
     + '</div></div>';
 }
 
-function categoryManager() {
+/** Quem pode excluir a categoria: o admin sempre; o funcionário só se ela não tiver aparelhos. */
+const canDeleteCategory = (name) => isAdmin() || !Object.values(state.devices).some((d) => d.area === name);
+
+/** Nova categoria + lista (com problemas). Admin: todas; funcionário: as da sua função. */
+function categoryManager(list = companyCategories()) {
   const categoryRow = (c) => '<div class="row between nowrap list-row compact">'
     + '<button class="link-row" data-cat="' + esc(c.name) + '">' + categoryIcon(c) + esc(c.name)
     + ' <span class="muted">(' + problemsOf(c.name).length + ' problemas) ›</span></button>'
-    + removeButton('data-cdel="' + esc(c.name) + '"', 'Excluir categoria') + '</div>';
+    + when(canDeleteCategory(c.name), removeButton('data-cdel="' + esc(c.name) + '"', 'Excluir categoria')) + '</div>';
   return '<div class="card"><b>Nova categoria de aparelho</b>'
     + '<label>Nome da categoria</label><input type="text" id="wc_n" placeholder="Ex.: Roteador">'
     + '<label>Ícone (imagem PNG)</label><input type="file" id="wc_f" accept="image/png">'
     + '<p><button class="primary" id="wc_add">Adicionar categoria</button></p></div>'
-    + '<div class="card">' + (each(companyCategories(), categoryRow) || '<span class="muted">Nenhuma.</span>') + '</div>';
+    + '<div class="card">' + (each(list, categoryRow) || '<span class="muted">Nenhuma.</span>') + '</div>';
 }
 
 function viewCompany() {

@@ -10,9 +10,9 @@
 
 /** Abas da barra de navegação por papel. */
 const NAV_TABS = {
-  func: [['agenda', 'Agenda'], ['tarefas', 'Tarefas'], ['workstation', 'Workstation']],
+  func: [['agenda', 'Agenda'], ['tarefas', 'Tarefas'], ['workstation', 'Área de Trabalho']],
   sol: [['agenda', 'Agenda'], ['tarefas', 'Tarefas'], ['equipe', 'Equipe'], ['aparelhos', 'Aparelhos']],
-  admin: [['agenda', 'Agenda'], ['tarefas', 'Tarefas'], ['equipe', 'Equipe'], ['workstation', 'Workstation'], ['empresa', 'Empresa']],
+  admin: [['agenda', 'Agenda'], ['tarefas', 'Tarefas'], ['equipe', 'Equipe'], ['workstation', 'Área de Trabalho'], ['empresa', 'Empresa']],
 };
 const tabsFor = (role) => NAV_TABS[role] || NAV_TABS.sol;
 
@@ -23,7 +23,7 @@ const VIEWS = {
   equipe: [viewTeam, ['sol', 'admin']],
   aparelhos: [viewDevices, ['sol']],
   workstation: [viewWorkstation, ['func', 'admin']],
-  wcfg: [viewWorkstationConfig, ['func', 'admin']],
+  wcfg: [viewWorkstationConfig, ['func']],
   folgas: [viewTimeOff, ['func', 'admin']],
   empresa: [viewCompany, ['admin']],
   perfil: [viewAccount, []],

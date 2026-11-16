@@ -64,6 +64,7 @@ function openDevice(id) {
     + '<label>Registrar no log</label><textarea id="dv_t" rows="2" placeholder="Ex.: troca de toner, formatação, cabo substituído…"></textarea>'
     + '<p><button class="small primary" data-lg="' + id + '">Registrar</button></p>'
     + deviceLogPreview(d)
+    + when(canDeleteDevice(d), '<p><button class="small danger" data-devdel="' + d.id + '">Excluir aparelho</button></p>')
     + closeButton());
 }
 

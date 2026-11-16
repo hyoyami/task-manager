@@ -205,7 +205,7 @@ telefone/computador. A hierarquia vem de peso e tamanho, nunca de troca de famí
 ### Hierarchy
 - **Display** (700, 24px, espaçamento 3px, caixa alta no texto): só a marca "TASK MANAGER" na tela de entrada; no
   cabeçalho a marca usa o mesmo tratamento em 15px com espaçamento 2px.
-- **Headline** (700, 19px, espaçamento 0.3px): título de cada aba ("Workstation", "Empresa").
+- **Headline** (700, 19px, espaçamento 0.3px): título de cada aba ("Área de Trabalho", "Empresa").
 - **Title** (700, 16px): seções dentro da aba e títulos de modal; o título da tarefa em execução sobe para 20px.
 - **Body** (400, 15px, 1.4): texto corrido, campos, botões padrão.
 - **Label** (400, 13px, cor Lápis): rótulos de campo, linhas de detalhe, botões pequenos.

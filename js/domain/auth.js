@@ -200,7 +200,11 @@ function startSession(aid) {
   ui.knownNotifs = new Set();
   ui.notifsLoaded = false;
   stopSync();
-  Object.assign(raw, { profiles: {}, companies: {}, invites: {}, tasks: {}, devices: {}, tutorials: {}, notifs: [] });
+  // Mesma conta reassinando (entrou/saiu de empresa): mantém o que está na tela até os dados novos
+  // chegarem, para não piscar "Carregando…" nem perder o que a pessoa estava preenchendo.
+  if (raw.uid !== aid) {
+    Object.assign(raw, { uid: aid, profiles: {}, companies: {}, invites: {}, tasks: {}, devices: {}, tutorials: {}, notifs: [] });
+  }
   const db = state.db;
   const onError = (err) => console.error(err);
   const refresh = () => { applyCompanyScope(); render(); };

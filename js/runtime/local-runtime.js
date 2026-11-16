@@ -103,6 +103,24 @@
   /** Equivalentes locais das funções do banco do Supabase (supabase/schema.sql). */
   var functions = {
     username_available: async function (args) { return !profileByUsername(args.uname); },
+    // Mesmas verificações da função claim_task do Supabase.
+    claim_task: async function (args) {
+      var t = store['tasks/' + args.task_id];
+      var me = store['profiles/' + currentAid];
+      if (!t || !me || me.status !== 'active' || t.company !== me.company) throw new Error('Tarefa não encontrada.');
+      if (!t.pool) throw new Error('Esta tarefa não está aberta para a equipe.');
+      if (t.emp) throw new Error('Outro funcionário já pegou esta tarefa.');
+      if (t.status !== 'aguardando') throw new Error('Esta tarefa não está aberta para a equipe.');
+      if (me.role === 'func' && t.cat) {
+        var company = store['companies/' + t.company] || {};
+        var cargo = (company.cargos || {})[(me.ws || {}).cargo];
+        if (cargo && (cargo.cats || []).indexOf(t.cat) < 0) throw new Error('Esta tarefa não é da sua função.');
+      } else if (me.role !== 'admin' && me.role !== 'func') {
+        throw new Error('Só funcionários e o administrador assumem tarefas.');
+      }
+      var hist = (t.hist || []).concat([{ t: Date.now(), x: 'Assumida por ' + (me.name || '—') }]);
+      await docRef('tasks/' + args.task_id).update({ emp: currentAid, hist: hist });
+    },
     join_with_invite: async function (args) {
       var invite = store['invites/' + args.code];
       if (!invite || !currentAid || !store['profiles/' + currentAid]) throw new Error('Convite inválido.');

@@ -2,7 +2,7 @@
 
 Sistema web (mobile-first, funciona no PC), **multiempresa**, para distribuir tarefas entre
 **solicitantes (Usuário Y)** e **funcionários (Usuário X)**, com um **administrador** por empresa,
-agenda automática, aparelhos (Workstation), logs e tutoriais.
+agenda automática, aparelhos (Área de Trabalho), logs e tutoriais.
 Idioma da interface e dos textos: **português do Brasil**. Responda ao usuário em português.
 
 ## Estrutura
@@ -48,7 +48,8 @@ ou `localStorage.setItem('tm_backend','local')`.
 ## Banco (Supabase)
 - Cada coleção é uma tabela `{id text, data jsonb}` + colunas geradas (`company`, `emp`, `req`, `dev`, `owner`,
   `to_user`…) usadas em índices e permissões. `update()` do app = função `doc_merge` (mescla jsonb);
-  `db.call('join_with_invite', {code})` = entrar pelo link de convite (RPC validada no servidor).
+  `db.call('join_with_invite', {code})` = entrar pelo link de convite; `claim_task` = assumir tarefa aberta;
+  `username_available` / `email_for_username` = nome de usuário (RPCs validadas no servidor).
 - Login: Supabase Auth (`profiles.id = auth.uid()`); a coleção `cred` só existe no modo local.
 - RLS (ver `supabase/schema.sql`): cada tabela só mostra linhas da empresa do usuário (`my_company()`, só
   membros **ativos**). Tarefa: o solicitante cria e só solicitante/responsável alteram; aparelho: funcionários e
@@ -79,7 +80,8 @@ Testes: `pip install playwright && playwright install chromium`, depois
   Solicitante: `devCatOrder:[categoria]` = ordem das categorias na aba Aparelhos.
   Categorias e problemas ficavam no perfil (`ws.cats/hidden/probs/areas`); agora ficam na empresa.
 - `tasks/<id>` — `{title,desc,prio:'alta|neutra|baixa',dur,emp,req,status,start,initial,hist[],summary,
-  dev,devName,devArea,devIp,devPrev,preset,tipo:'manutencao'}`. `devPrev` = status do aparelho antes da tarefa.
+  dev,devName,devArea,devIp,devPrev,preset,tipo:'manutencao', pool, cat}`. `devPrev` = status do aparelho antes da tarefa.
+  Tarefa aberta para a equipe: `pool:true`, `emp:null`, `cat` = categoria (do aparelho ou escolhida; `null` = geral).
   Status: `aguardando` → `pendente`/`agendada` → `andamento` ⇄ `pausada` → `concluida` | `cancelada`.
 - `devices/<id>` — `{company, owner (quem cadastrou), name, ip, area, status:'Operacional|Inoperante|Em manutenção|Fora de uso',
   log[], created}`. Aparelho é **da empresa** (não tem responsável fixo).
@@ -95,11 +97,20 @@ Testes: `pip install playwright && playwright install chromium`, depois
 - Papéis: **admin** (criou a empresa; faz tudo de funcionário e de solicitante + aba Empresa), **func**, **sol**.
 - Conta nova → tela de entrada (`views/onboarding.js`): criar empresa (vira admin) ou pedir entrada escolhendo
   papel (fica `pending` até o admin aceitar). Link de convite (`?convite=`) entra direto com o papel do link.
+- "Configurações de trabalho" (menu, aba `wcfg`) é **só do funcionário**: vê a sua função, cria categorias, edita
+  problemas e exclui categorias **sem aparelhos** (as com aparelhos só o admin). No banco, o gatilho `guard_company`
+  deixa o funcionário mudar só categorias/problemas (funções só ganham categorias; nome/admin nunca).
+  O admin faz tudo isso na aba Empresa e exclui aparelhos pela janela do aparelho ("Excluir aparelho").
+- A aba de aparelhos do funcionário/admin chama-se **"Área de Trabalho"** (chave interna `workstation`).
 - Aba Empresa (admin): pedidos de entrada (contador na aba; aceitar com papel e função), membros (trocar papel
   sol/func e função, remover), links de convite, funções (quais categorias cada uma vê) e categorias/problemas.
 - Aparelhos são da empresa; funcionário vê/organiza só os das categorias da sua função (`canSeeCategory()`);
   admin e solicitante veem todos. Manutenção: o solicitante escolhe quem atende entre os que cobrem a categoria
   (`eligibleEmployees()`); se só um puder, já vem marcado.
+- Tarefa **sem responsável escolhido** vira "aberta para a equipe": aparece para todos que atendem a categoria
+  (`canTakeCategory()`: admin sempre; funcionário pela função; sem categoria = qualquer funcionário). O primeiro que
+  aceitar (escolhendo a duração) fica com ela — `claimTask()` → RPC `claim_task` (linha travada; recusa se já
+  assumida ou se não é da função) — e ela é agendada pela urgência como no aceite normal.
 - Solicitante cria a tarefa **sem duração**; só o funcionário define a duração e agenda
   (arrastando o cartão para um horário livre, tocando no cartão e depois no horário, ou botão "Auto").
 - Agenda limitada à **semana corrente dentro do mês** (`currentWeek()`); `findSlot()` respeita jornada,
@@ -125,7 +136,7 @@ Testes: `pip install playwright && playwright install chromium`, depois
   (validação: entrada < almoço início < almoço fim < saída).
 - Folga nova (semanal ou pontual) ou mudança no horário de trabalho devolve para "pendente" as tarefas
   agendadas que ficarem fora e reagenda automaticamente.
-- O funcionário organiza os aparelhos na Workstation arrastando (mouse: cartão inteiro; toque: alça ⠿):
+- O funcionário organiza os aparelhos na Área de Trabalho arrastando (mouse: cartão inteiro; toque: alça ⠿):
   borda de outro aparelho = reordena; meio = cria grupo (ou entra no grupo dele); fora dos grupos = solta.
 - Na aba Aparelhos do **solicitante**, os aparelhos de todos aparecem agrupados por categoria; ele só pode
   arrastar as categorias para reordenar (sem mover aparelhos nem desfazer grupos). A ordem é pessoal:

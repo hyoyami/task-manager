@@ -13,9 +13,11 @@ function viewTasks() {
     .filter((t) => mine(t) && statuses.includes(t.status))
     .sort((a, b) => (history ? finishedAt(b) - finishedAt(a) : b.created - a.created));
 
+  const open = history ? [] : openTasksForMe().sort((a, b) => b.created - a.created);
   return '<div class="row toolbar">'
     + '<button class="small' + when(!history, ' primary') + '" data-tf="ativas">Ativas</button>'
     + '<button class="small' + when(history, ' primary') + '" data-tf="hist">Histórico</button></div>'
+    + when(open.length, '<h2>Abertas para a equipe</h2>' + each(open, openTaskCard) + '<h2>Minhas tarefas</h2>')
     + (each(list, (t) => (history ? finishedRow(t) : taskCard(t, { canControl: t.emp === state.uid })))
       || emptyCard(history ? 'Nenhuma tarefa concluída ou cancelada.' : 'Nenhuma tarefa ativa.'));
 }
@@ -34,12 +36,16 @@ function employeePicker(deviceId) {
   const d = state.devices[deviceId];
   const list = d ? eligibleEmployees(d.area) : employees();
   const label = d ? 'Quem vai atender (função que cuida de ' + esc(d.area) + ')' : 'Funcionário(s) responsável(is)';
-  const checked = (e) => e.id === ui.presetEmp || list.length === 1;
+  const open = d ? 'todos que atendem ' + esc(d.area) : 'todos que atendem o tipo escolhido abaixo';
   return '<label>' + label + '</label>'
     + (each(list, (e) => '<label class="check"><input type="checkbox" class="f_e" value="' + e.id + '"'
-      + when(checked(e), ' checked') + '>' + esc(e.name) + when(e.id === state.uid, ' (você)')
+      + when(e.id === ui.presetEmp, ' checked') + '>' + esc(e.name) + when(e.id === state.uid, ' (você)')
       + when(e.role === 'admin', ' <span class="muted">· administrador</span>') + '</label>')
-      || '<span class="muted">' + (d ? 'Nenhum funcionário atende esta categoria.' : 'Nenhum funcionário cadastrado.') + '</span>');
+      || '<span class="muted">' + (d ? 'Nenhum funcionário atende esta categoria.' : 'Nenhum funcionário cadastrado.') + '</span>')
+    + '<p class="muted">Sem ninguém marcado, a tarefa fica <b>aberta para a equipe</b>: aparece para ' + open
+    + ' e o administrador; o primeiro que aceitar fica com ela.</p>'
+    + when(!d, '<label for="f_cat">Tipo de tarefa (para tarefa aberta)</label><select id="f_cat"><option value="">Geral — qualquer funcionário</option>'
+      + each(companyCategories(), (c) => '<option value="' + esc(c.name) + '">' + esc(c.name) + '</option>') + '</select>');
 }
 
 /** Botões de problemas pré-definidos da categoria do aparelho escolhido. */
@@ -96,7 +102,8 @@ function readNewTaskForm() {
     }
     if (form.title && !/^Manuten/.test(form.title)) form.title = 'Manutenção: ' + form.title;
   }
-  if (!form.title || !form.desc || !form.emps.length) return { error: 'Informe título, descrição e ao menos um funcionário.' };
+  if (!device && !form.emps.length) form.cat = $('#f_cat')?.value || null;
+  if (!form.title || !form.desc) return { error: 'Informe título e descrição.' };
   return { form };
 }
 

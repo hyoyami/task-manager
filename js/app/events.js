@@ -61,6 +61,8 @@ async function onChange(e) {
       say('Função de ' + nameOf(x.dataset.id) + ' alterada.');
     } else if (x.classList.contains('cg-cat')) {
       await toggleCargoCategory(x.dataset.cargo, x.dataset.cgcat, x.checked);
+    } else if (x.classList.contains('psel')) {
+      ui.poolDur[x.dataset.i] = +x.value || 0;
     } else if (x.classList.contains('dsel') && +x.value) {
       x.blur();
       await setDuration(x.dataset.i, +x.value);

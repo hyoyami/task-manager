@@ -59,9 +59,12 @@ async function scheduleWaiting(emp) {
  */
 async function createTasks(form) {
   const device = form.link?.dev ? state.devices[form.link.dev] : null;
-  for (const emp of form.emps) {
+  // Ninguém escolhido: uma única tarefa "aberta para a equipe" (pool), que o primeiro elegível assume.
+  const targets = form.emps.length ? form.emps : [null];
+  for (const emp of targets) {
     const ref = newDoc('tasks');
     const now = Date.now();
+    const pool = emp === null;
     await ref.set({
       id: ref.id,
       company: state.me.company,
@@ -71,16 +74,25 @@ async function createTasks(form) {
       dur: null,
       ...form.link,
       emp,
+      ...(pool ? { pool: true, cat: device ? device.area : (form.cat || null) } : {}),
       req: state.uid,
       status: 'aguardando',
       created: now,
       want: form.want || 0,
       start: null,
       initial: null,
-      hist: [{ t: now, x: 'Tarefa criada' }, { t: now, x: 'Enviada ao funcionário para aceite' }],
+      hist: [{ t: now, x: 'Tarefa criada' },
+        { t: now, x: pool ? 'Aberta para a equipe' + (device || form.cat ? ' (' + (device ? device.area : form.cat) + ')' : '') : 'Enviada ao funcionário para aceite' }],
       ...(device ? { devPrev: device.status || 'Operacional' } : {}),
     });
-    notify(emp, 'Nova tarefa ' + PRIORITY_LABEL[form.prio].toLowerCase() + ' para aceitar: ' + quote(form));
+    const kind = 'Nova tarefa ' + PRIORITY_LABEL[form.prio].toLowerCase();
+    if (pool) {
+      const cat = device ? device.area : form.cat;
+      employees().filter((p) => canTakeCategory(p, cat))
+        .forEach((p) => notify(p.id, kind + ' aberta para a equipe: ' + quote(form)));
+    } else {
+      notify(emp, kind + ' para aceitar: ' + quote(form));
+    }
   }
   if (device) {
     // Fica inoperante até o funcionário iniciar (se já houver outra em execução, segue em manutenção).
@@ -130,6 +142,34 @@ async function releaseDevice(t, action) {
   if (pending) return setDeviceStatus(t.dev, pending, 'outra tarefa aberta para o aparelho');
   const back = action === 'concluir' ? 'Operacional' : (t.devPrev || 'Operacional');
   await setDeviceStatus(t.dev, back, action === 'concluir' ? 'manutenção concluída' : 'tarefa ' + quote(t) + ' ' + (action === 'recusar' ? 'recusada' : 'cancelada'));
+}
+
+// ---------- Tarefas abertas para a equipe ----------
+/** A pessoa atende tarefas da categoria? Admin: todas; funcionário: as da função; sem categoria: qualquer um. */
+const canTakeCategory = (profile, cat) => executes(profile) && (!cat || canSeeCategory(profile, cat));
+
+/** Tarefa aberta que o usuário logado pode assumir. */
+const canTakeTask = (t) => !!t.pool && !t.emp && t.status === 'aguardando' && canTakeCategory(state.me, t.cat);
+
+/** Abertas visíveis ao usuário logado. */
+const openTasksForMe = () => allTasks().filter(canTakeTask);
+
+/**
+ * Assume a tarefa aberta (o banco garante que só um consegue) e já agenda com a duração escolhida.
+ */
+async function claimTask(id, minutes) {
+  const t = state.tasks[id];
+  if (!t || !canTakeTask(t)) return say('Esta tarefa não está mais disponível.');
+  if (!minutes) return say('Defina a duração antes.');
+  try {
+    await state.db.call('claim_task', { task_id: id });
+  } catch (err) {
+    return say(/já pegou|already/i.test(err.message) ? 'Outro funcionário já pegou esta tarefa.' : err.message);
+  }
+  state.tasks[id] = { ...t, emp: state.uid, hist: [...(t.hist || []), { t: Date.now(), x: 'Assumida por ' + nameOf(state.uid) }] };
+  await commitTask(id, { dur: minutes }, 'Duração definida pelo funcionário: ' + minutes + ' min');
+  notify(t.req, 'Tarefa ' + quote(t) + ' assumida por ' + nameOf(state.uid));
+  await acceptTask(state.tasks[id]);
 }
 
 const hasRunningTask = (task) =>

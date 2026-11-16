@@ -221,6 +221,41 @@ begin
   raise exception 'Alteração de empresa, papel ou status não permitida.';
 end $$;
 
+-- ---------- Proteção da empresa: o funcionário só mexe em categorias e problemas ----------
+create or replace function public.guard_company() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  me text := auth.uid()::text;
+  k text;
+begin
+  if coalesce(current_setting('tm.bypass', true), '') = 'on' or me is null or old.data->>'admin' = me then
+    return new;
+  end if;
+  -- Funcionário: nome, administrador e data de criação não mudam…
+  if new.data->>'name' is distinct from old.data->>'name'
+     or new.data->>'admin' is distinct from old.data->>'admin'
+     or new.data->'created' is distinct from old.data->'created' then
+    raise exception 'Só o administrador altera os dados da empresa.';
+  end if;
+  -- …e as funções só podem ganhar categorias (a nova categoria vale para todas), nunca perder ou mudar.
+  for k in select jsonb_object_keys(coalesce(old.data->'cargos', '{}'::jsonb)) loop
+    if not coalesce(new.data->'cargos', '{}'::jsonb) ? k
+       or new.data->'cargos'->k->>'n' is distinct from old.data->'cargos'->k->>'n'
+       or not coalesce(new.data->'cargos'->k->'cats', '[]'::jsonb) @> coalesce(old.data->'cargos'->k->'cats', '[]'::jsonb) then
+      raise exception 'Só o administrador altera as funções.';
+    end if;
+  end loop;
+  if exists (select 1 from jsonb_object_keys(coalesce(new.data->'cargos', '{}'::jsonb)) x
+             where not coalesce(old.data->'cargos', '{}'::jsonb) ? x) then
+    raise exception 'Só o administrador cria funções.';
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists companies_guard on public.companies;
+create trigger companies_guard before update on public.companies
+  for each row execute function public.guard_company();
+
 drop trigger if exists profiles_guard on public.profiles;
 create trigger profiles_guard before insert or update on public.profiles
   for each row execute function public.guard_profile();
@@ -237,6 +272,47 @@ language sql stable security definer set search_path = public as $$
   select data->>'email' from public.profiles where username = lower(trim(uname)) limit 1
 $$;
 
+-- Assumir uma tarefa aberta para a equipe: só um consegue (linha travada), e só quem atende a categoria.
+create or replace function public.claim_task(task_id text) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  me text := auth.uid()::text;
+  t public.tasks%rowtype;
+  p public.profiles%rowtype;
+  cargo jsonb;
+  cat text;
+begin
+  if me is null then raise exception 'Faça login.'; end if;
+  select * into t from public.tasks where id = task_id for update;
+  if t.id is null or t.company is distinct from public.my_company() then raise exception 'Tarefa não encontrada.'; end if;
+  if coalesce((t.data->>'pool')::boolean, false) is not true then
+    raise exception 'Esta tarefa não está aberta para a equipe.';
+  end if;
+  if t.emp is not null then raise exception 'Outro funcionário já pegou esta tarefa.'; end if;
+  if t.status <> 'aguardando' then raise exception 'Esta tarefa não está aberta para a equipe.'; end if;
+
+  select * into p from public.profiles where id = me and status = 'active';
+  cat := t.data->>'cat';
+  if p.role = 'func' and cat is not null then
+    -- Mesma regra do app (canSeeCategory): sem função definida vê tudo; com função, só as categorias dela.
+    select c.data->'cargos'->(p.data->'ws'->>'cargo') into cargo from public.companies c where c.id = t.company;
+    if cargo is not null and not coalesce((cargo->'cats') ? cat, false) then
+      raise exception 'Esta tarefa não é da sua função.';
+    end if;
+  elsif p.role is distinct from 'admin' and p.role is distinct from 'func' then
+    raise exception 'Só funcionários e o administrador assumem tarefas.';
+  end if;
+
+  update public.tasks
+     set data = data || jsonb_build_object(
+       'emp', me,
+       'hist', coalesce(data->'hist', '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
+         't', (extract(epoch from now()) * 1000)::bigint,
+         'x', 'Assumida por ' || coalesce(p.data->>'name', '—'))))
+   where id = task_id;
+end $$;
+
+grant execute on function public.claim_task(text) to authenticated;
 grant execute on function public.username_available(text) to anon, authenticated;
 grant execute on function public.email_for_username(text) to anon, authenticated;
 grant execute on function public.doc_merge(text, text, jsonb) to authenticated;
@@ -271,8 +347,10 @@ end $$;
 -- quem cria vira o administrador; só ele altera.
 create policy companies_select on public.companies for select to authenticated using (true);
 create policy companies_insert on public.companies for insert to authenticated with check (admin = auth.uid()::text);
+-- O admin altera tudo; funcionários alteram categorias/problemas (ver guard_company).
 create policy companies_update on public.companies for update to authenticated
-  using (admin = auth.uid()::text) with check (admin = auth.uid()::text);
+  using (admin = auth.uid()::text or (id = public.my_company() and public.my_role() = 'func'))
+  with check (id = public.my_company() or admin = auth.uid()::text);
 
 -- Convites: só o administrador da empresa vê, cria e apaga (o uso é pela função join_with_invite).
 create policy invites_select on public.invites for select to authenticated using (public.is_company_admin(company));

@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Organização dos aparelhos na Workstation por arrasto.
+   Organização dos aparelhos na Área de Trabalho por arrasto.
 
    - Mouse: arrasta pelo cartão (ou pelo cabeçalho do grupo).
    - Toque: arrasta pela alça ⠿ (o resto do cartão continua rolando a tela).
@@ -13,7 +13,7 @@
    ========================================================================== */
 'use strict';
 
-/** Workstation (aparelhos e grupos) e aba Aparelhos do solicitante (só categorias). */
+/** Área de Trabalho (aparelhos e grupos) e aba Aparelhos do solicitante (só categorias). */
 const DEVICE_BOARDS = '#dv_board,#cat_board';
 const DROP_EDGE = 0.28; // fração do cartão que conta como "borda"
 const DROP_CLASSES = ['drop-into', 'drop-before-h', 'drop-after-h', 'drop-before-v', 'drop-after-v', 'drop-root'];

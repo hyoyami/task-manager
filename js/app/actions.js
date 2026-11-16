@@ -14,7 +14,7 @@ async function patchMyProfile(patch) {
   await updateMyProfile(patch);
 }
 
-// ---------- Workstation ----------
+// ---------- Área de Trabalho ----------
 async function saveCargo() {
   const cargo = $('#w_c').value;
   if (!cargo) return say('Selecione a função.');
@@ -50,8 +50,20 @@ async function confirmCategoryDelete() {
   ui.modal.categoryToDelete = null;
   closeModal();
   if (!name) return;
+  if (!canDeleteCategory(name)) return say('Esta categoria tem aparelhos: só o administrador pode excluí-la.');
   await deleteCategory(name);
   say('Categoria excluída.');
+  render();
+}
+
+/** Excluir pela janela do aparelho (quem cadastrou ou o administrador). */
+async function deleteDeviceFromModal(id) {
+  const d = state.devices[id];
+  if (!d || !canDeleteDevice(d)) return say('Só quem cadastrou o aparelho ou o administrador pode excluí-lo.');
+  if (!confirm('Excluir o aparelho "' + d.name + '" e todo o seu log?')) return;
+  closeModal();
+  await deleteDevice(id);
+  say('Aparelho excluído.');
   render();
 }
 
@@ -359,7 +371,7 @@ const ACTIONS_BY_ID = {
   f_go: submitNewTask,
   dn_ok: confirmComplete,
   dn_no: () => closeModal(),
-  // Workstation
+  // Área de Trabalho
   w_save: saveCargo,
   dv_add: submitDevice,
   wc_add: submitCategory,
@@ -412,6 +424,7 @@ const ACTIONS_BY_DATA = {
   fulllog: (v) => openDeviceLog(v),
   lg: addDeviceNote,
   ddel: armDeviceDelete,
+  devdel: deleteDeviceFromModal,
   cat: (v) => openCategory(v),
   cdel: (v) => openCategoryDelete(v),
   grename: (v) => openGroupRename(v),
@@ -421,6 +434,7 @@ const ACTIONS_BY_DATA = {
   tut: (v) => openTutorial(...splitTutorialKey(v)),
   tdel: removeTutorialStep,
   tmv: moveStep,
+  claim: async (v) => { await claimTask(v, ui.poolDur[v] || 0); render(); },
   // Empresa (administrador)
   accept: acceptJoinRequest,
   reject: rejectJoinRequest,

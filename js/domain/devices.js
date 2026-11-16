@@ -1,12 +1,12 @@
 /* ==========================================================================
-   Aparelhos (da empresa), organização pessoal da Workstation e tutoriais.
+   Aparelhos (da empresa), organização pessoal da Área de Trabalho e tutoriais.
    Categorias, funções e problemas ficam na empresa — ver domain/company.js.
    ========================================================================== */
 'use strict';
 
 const categoryOfDevice = (d) => categoryByName(d.area);
 
-/** O usuário gerencia o aparelho na Workstation? (executa tarefas e a categoria é da função dele) */
+/** O usuário gerencia o aparelho na Área de Trabalho? (executa tarefas e a categoria é da função dele) */
 const managesDevice = (profile, d) => executes(profile) && canSeeCategory(profile, d.area);
 
 /** Todas as categorias conhecidas na empresa (para os tutoriais). */
@@ -23,7 +23,7 @@ function allProblems(cat) {
   return [...names];
 }
 
-/** Atualiza a Workstation do perfil logado (mescla com a atual). */
+/** Atualiza a Área de Trabalho do perfil logado (mescla com a atual). */
 async function updateWorkstation(patch) {
   const ws = { ...(state.me.ws || {}), ...patch };
   state.profiles[state.uid] = { ...state.profiles[state.uid], ws };

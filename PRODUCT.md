@@ -12,7 +12,7 @@ Produto para várias empresas (SaaS): cada empresa cria sua conta e monta a pró
 Três papéis dentro de cada empresa:
 
 - **Funcionário (técnico)**: executa as tarefas. Usa o sistema tanto no celular, em campo, indo de setor em
-  setor atender aparelhos, quanto no computador, na mesa, acompanhando agenda e Workstation — os dois contextos
+  setor atender aparelhos, quanto no computador, na mesa, acompanhando agenda e Área de Trabalho — os dois contextos
   com o mesmo peso. Trabalho principal: ver o que vem a seguir, definir duração, aceitar, iniciar, pausar e
   concluir tarefas, registrar o que foi feito no log do aparelho.
 - **Solicitante**: pede tarefas (com ou sem aparelho vinculado), acompanha quando serão feitas e o status dos

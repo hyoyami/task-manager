@@ -92,10 +92,13 @@ function viewAgenda() {
 
   if (canControl) {
     const waiting = tasksOf(['pendente', 'aguardando']);
+    const open = openTasksForMe();
     h += '<div class="row toolbar"><button class="small" data-prop="1">Reorganizar agenda</button></div>'
       + '<h2>Tarefas para agendar</h2>'
-      + (waiting.length
-        ? '<div class="strip">' + each(waiting, dragCard) + '</div><p class="muted">Defina a duração e arraste o cartão (⠿) até um horário livre.</p>'
+      + (waiting.length || open.length
+        ? '<div class="strip">' + each(waiting, dragCard) + each(open, openTaskCard) + '</div>'
+          + '<p class="muted">Defina a duração e arraste o cartão (⠿) até um horário livre.'
+          + when(open.length, ' Tarefas <b>abertas para a equipe</b>: o primeiro que aceitar fica com ela.') + '</p>'
         : '<p class="muted">Nenhuma tarefa aguardando.</p>');
   }
 

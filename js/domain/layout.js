@@ -1,17 +1,17 @@
 /* ==========================================================================
-   Organização dos aparelhos (ordem e grupos) na Workstation — pessoal: cada um
+   Organização dos aparelhos (ordem e grupos) na Área de Trabalho — pessoal: cada um
    organiza os aparelhos da empresa que enxerga (as categorias da sua função).
 
    Guardada no perfil: profiles/<id>.ws.layout = [
      { type: 'dev',   id },                               aparelho solto
      { type: 'group', id, name, cat?, items: [devId…] }   grupo (cat = criado da categoria)
    ]
-   Sem layout salvo, cada categoria vira um grupo (visual original da Workstation).
+   Sem layout salvo, cada categoria vira um grupo (visual original da Área de Trabalho).
    Aparelhos novos entram no grupo da sua categoria, se existir, ou no fim.
    ========================================================================== */
 'use strict';
 
-/** Aparelhos que a pessoa organiza na Workstation (os da empresa nas categorias da função dela). */
+/** Aparelhos que a pessoa organiza na Área de Trabalho (os da empresa nas categorias da função dela). */
 const devicesOf = (userId) => Object.values(state.devices).filter((d) => managesDevice(state.profiles[userId], d));
 const topKey = (item) => (item.type === 'group' ? 'g:' : 'd:') + item.id;
 const newGroupId = () => 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);

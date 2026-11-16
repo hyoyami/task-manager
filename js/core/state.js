@@ -32,7 +32,7 @@ const state = {
   notifs: [],
   /** devices/<id> → aparelhos da empresa. */
   devices: {},
-  /** Aparelhos que o usuário logado gerencia na Workstation (categorias da função dele). */
+  /** Aparelhos que o usuário logado gerencia na Área de Trabalho (categorias da função dele). */
   myDevices: {},
   /** tutorials/<id> → passo de tutorial. */
   tutorials: {},
@@ -52,12 +52,14 @@ const ui = {
   taskFilter: 'ativas',
   /** Filtros da aba Aparelhos. */
   deviceFilter: { cat: '', status: '' },
-  /** Workstation: 'dev' (lista), 'new' (formulário), 'back1' (voltar ao cargo). */
+  /** Área de Trabalho: 'dev' (lista), 'new' (formulário), 'back1' (voltar ao cargo). */
   wsStep: 'dev',
   /** Exclusão de aparelho aguardando confirmação (id). */
   deviceDeleteArmed: null,
   /** Menu: lista de contas salvas aberta. */
   accountSwitcher: false,
+  /** Duração escolhida em cada tarefa aberta antes de aceitar: { [id]: minutos }. */
+  poolDur: {},
   /** Funcionário pré-selecionado ao abrir "Nova tarefa" pela Equipe. */
   presetEmp: null,
 
@@ -73,7 +75,7 @@ const ui = {
 
   /** Arrasto de cartão em andamento (ver app/drag.js). */
   drag: null,
-  /** Arrasto de aparelho/grupo na Workstation (ver app/device-drag.js). */
+  /** Arrasto de aparelho/grupo na Área de Trabalho (ver app/device-drag.js). */
   deviceDrag: null,
   /** Cartão selecionado por toque, aguardando o toque num horário livre. */
   selectedTask: null,

@@ -3,7 +3,7 @@
 Percorre os fluxos principais com o relógio do navegador fixo (quarta-feira,
 11/11/2026, 09:00 em São Paulo) para que o resultado seja determinístico:
 
-  funcionário: cadastro, configuração da Workstation, aparelho, folgas,
+  funcionário: cadastro, configuração da Área de Trabalho, aparelho, folgas,
                problemas da categoria, tutorial;
   solicitante: cadastro, Equipe, Aparelhos, criação de tarefas (com e sem aparelho);
   funcionário: aceite automático, agendamento por toque, início antecipado,
@@ -155,7 +155,7 @@ def main():
         r.click("#ob_create")
         assert "nome da empresa" in pg.inner_text("#toast")
         r.create_company("Empresa Teste")
-        assert r.tabs() == ["Agenda", "Tarefas", "Equipe", "Workstation", "Empresa"], r.tabs()
+        assert r.tabs() == ["Agenda", "Tarefas", "Equipe", "Área de Trabalho", "Empresa"], r.tabs()
         r.tab("empresa")
         r.click('[data-cat="Impressora"]')
         pg.fill("#pb_n", "Sem tinta")
@@ -167,11 +167,11 @@ def main():
         r.shot("empresa")
         r.logout()
 
-        # ---------- Funcionária Ana: entra pelo convite e monta a Workstation ----------
+        # ---------- Funcionária Ana: entra pelo convite e monta a Área de Trabalho ----------
         pg.goto(func_link)
         assert "convite" in pg.inner_text("#app")
         r.signup("Ana", "ana@teste.com")
-        assert r.tabs() == ["Agenda", "Tarefas", "Workstation"], r.tabs()
+        assert r.tabs() == ["Agenda", "Tarefas", "Área de Trabalho"], r.tabs()
         ana_id = pg.evaluate("state.uid")
         r.shot("ana-agenda-vazia")
         r.tab("workstation")
@@ -196,7 +196,20 @@ def main():
         r.shot("dev-modal", "#mdb")
         r.click("#dn_no")
 
+        # Configurações de trabalho (funcionário): cria categoria e problema; categoria com aparelho não se exclui.
         r.menu("wcfg")
+        pg.fill("#wc_n", "Scanner")
+        pg.set_input_files("#wc_f", files=[{"name": "s.png", "mimeType": "image/png", "buffer": PNG_1PX}])
+        r.click("#wc_add")
+        r.wait(300)
+        assert pg.locator('[data-cat="Scanner"]').count() == 1
+        r.click('[data-cat="Scanner"]')
+        pg.fill("#pb_n", "Sem papel")
+        r.click("#pb_add")
+        assert "Sem papel" in pg.inner_text("#mdb")
+        r.click("#dn_no")
+        assert pg.locator('[data-cdel="Impressora"]').count() == 0   # tem aparelho: só o admin exclui
+        assert pg.locator('[data-cdel="Scanner"]').count() == 1      # vazia: o funcionário pode excluir
         r.shot("wcfg")
 
         # Folgas: sábado e domingo + folga pontual
@@ -268,8 +281,6 @@ def main():
         r.wait()
         r.shot("nova-com-aparelho", "#mdb")
         r.click('[data-pk="Limpeza"]')
-        r.click("#f_go")
-        assert "ao menos um funcionário" in pg.inner_text("#f_m")  # dois podem atender: precisa escolher
         pg.check(f'.f_e[value="{ana_id}"]')
         r.click("#f_go")
         # O aparelho vinculado fica inoperante até o funcionário iniciar (visível na aba Aparelhos).
@@ -396,6 +407,7 @@ def main():
         assert not r.errors, r.errors
         n = priority_flow(b, shots_dir)
         n += company_flow(b, shots_dir)
+        n += open_task_flow(b, shots_dir)
         print(f"OK: {len(r.shots) + n} telas verificadas, sem erros de JavaScript.")
         b.close()
 
@@ -559,7 +571,7 @@ def company_flow(browser, shots_dir):
 
     # Hugo (Desenvolvedor) só enxerga os computadores.
     r.login("hugo@teste.com")
-    assert r.tabs() == ["Agenda", "Tarefas", "Workstation"], r.tabs()
+    assert r.tabs() == ["Agenda", "Tarefas", "Área de Trabalho"], r.tabs()
     r.tab("workstation")
     names = pg.eval_on_selector_all(".device-card .device-name", "e => e.map(x => x.textContent)")
     assert names == ["PC Alfa"], names
@@ -617,6 +629,114 @@ def company_flow(browser, shots_dir):
     assert seen == {"dev": 0, "people": 1}, seen
     r.tab("equipe")
     assert "Gil" not in pg.inner_text("#app")
+    assert not r.errors, r.errors
+    ctx.close()
+    return len(r.shots)
+
+
+def open_task_flow(browser, shots_dir):
+    """Tarefa sem responsável: aparece para quem atende a categoria (e o admin); o primeiro que aceitar fica."""
+    ctx = browser.new_context(viewport={"width": 420, "height": 1400}, timezone_id="America/Sao_Paulo", locale="pt-BR")
+    pg = ctx.new_page()
+    pg.clock.set_fixed_time(NOW)
+    r = Run(pg, shots_dir / "aberta" if shots_dir else None)
+    if r.shots_dir:
+        r.shots_dir.mkdir(exist_ok=True)
+    pg.goto(INDEX)
+    task = lambda title: next(v for k, v in json.loads(pg.evaluate("localStorage.getItem('tm_db_v1')")).items()
+                              if k.startswith("tasks/") and v["title"] == title)
+
+    # Admin cria a empresa, uma impressora, a função Desenvolvedor (só Computador) e os convites.
+    r.signup("Lia", "lia@teste.com")
+    r.create_company("Oficina Aberta")
+    r.tab("workstation")
+    r.click('[data-wst="new"]')
+    pg.select_option("#dv_a", "Impressora")
+    pg.fill("#dv_n", "Impressora Sala 2")
+    pg.fill("#dv_i", "10.0.0.20")
+    r.click("#dv_add")
+    dev = pg.get_attribute(".device-card", "data-did")
+    r.tab("empresa")
+    pg.fill("#adm_cg_n", "Desenvolvedor")
+    r.click("#adm_cg_add")
+    pg.check('.cg-cat[data-cargo="desenvolvedor"][data-cgcat="Computador"]')
+    r.wait(200)
+    func_link, sol_link = r.invite("func"), r.invite("sol")
+    r.logout()
+    for name, email, cargo in [("Téo TI", "teo@teste.com", "ti"), ("Dani Dev", "dani@teste.com", "desenvolvedor")]:
+        pg.goto(func_link)
+        r.signup(name, email)
+        r.tab("workstation")
+        pg.select_option("#w_c", cargo)
+        r.click("#w_save")
+        r.logout()
+
+    # Solicitante abre manutenção na impressora sem escolher ninguém → tarefa aberta (categoria Impressora).
+    pg.goto(sol_link)
+    r.signup("Sol", "sol@teste.com")
+    r.click("#nfab")
+    pg.select_option("#f_v", dev)
+    r.wait()
+    assert pg.locator(".f_e:checked").count() == 0
+    r.click('[data-pk="Limpeza"]')
+    r.click("#f_go")
+    t = task("Manutenção: Limpeza")
+    assert t["pool"] is True and t["emp"] is None and t["cat"] == "Impressora", t
+    # E uma tarefa geral (sem aparelho, tipo Geral) também aberta.
+    r.click("#nfab")
+    pg.fill("#f_t", "Organizar cabos")
+    pg.fill("#f_d", "Sala de reunião")
+    r.click("#f_go")
+    assert task("Organizar cabos")["cat"] is None
+    r.tab("tarefas")
+    assert "aberta para a equipe" in pg.inner_text("#app")
+    r.logout()
+
+    # Dev não recebe a da impressora, mas recebe a geral; não consegue assumir a da impressora nem forçando.
+    r.login("dani")
+    titles = pg.eval_on_selector_all(".strip .open-task b", "e => e.map(x => x.textContent)")
+    assert titles == ["Organizar cabos"], titles
+    forced = pg.evaluate(f"""async () => {{ try {{ await state.db.call('claim_task', {{ task_id: '{t["id"]}' }}); return 'ok'; }}
+                                          catch (e) {{ return e.message; }} }}""")
+    assert forced == "Esta tarefa não é da sua função.", forced
+    r.logout()
+
+    # Admin vê as duas.
+    r.login("lia")
+    titles = sorted(pg.eval_on_selector_all(".strip .open-task b", "e => e.map(x => x.textContent)"))
+    assert titles == ["Manutenção: Limpeza", "Organizar cabos"], titles
+    r.logout()
+
+    # TI vê as duas, aceita a da impressora (precisa de duração) e ela some das abertas.
+    r.login("teo")
+    teo = pg.evaluate("state.uid")
+    tid = t["id"]
+    r.click(f'[data-claim="{tid}"]')
+    assert toast(r) == "Defina a duração antes.", toast(r)
+    pg.select_option(f'.psel[data-i="{tid}"]', "30")
+    r.click(f'[data-claim="{tid}"]')
+    r.wait(300)
+    t = task("Manutenção: Limpeza")
+    assert t["emp"] == teo and t["dur"] == 30 and t["status"] == "agendada", t
+    assert any("Assumida por Téo TI" in h["x"] for h in t["hist"]), t["hist"]
+    assert pg.locator(f'.open-task[data-tid="{tid}"]').count() == 0
+    r.shot("aberta-assumida")
+    r.logout()
+
+    # Depois de assumida, ninguém mais pega (nem o admin).
+    r.login("lia")
+    assert pg.locator(f'.open-task[data-tid="{tid}"]').count() == 0
+    forced = pg.evaluate(f"""async () => {{ try {{ await state.db.call('claim_task', {{ task_id: '{tid}' }}); return 'ok'; }}
+                                          catch (e) {{ return e.message; }} }}""")
+    assert forced == "Outro funcionário já pegou esta tarefa.", forced
+    # Admin: sem "Configurações de trabalho" no menu (faz tudo na aba Empresa); exclui aparelho pela janela dele.
+    r.click("#mnb")
+    assert pg.locator('#mn_b [data-go="wcfg"]').count() == 0
+    r.click("#mnx")
+    r.tab("workstation")
+    r.click(f'[data-dev="{dev}"]')
+    r.click(f'[data-devdel="{dev}"]')
+    assert pg.locator(f'.device-card[data-did="{dev}"]').count() == 0
     assert not r.errors, r.errors
     ctx.close()
     return len(r.shots)
@@ -753,7 +873,7 @@ def extra_flows(r):
     r.logout()
     r.login("ana2@teste.com", "abcdef")
 
-    # Novo aparelho pela Workstation.
+    # Novo aparelho pela Área de Trabalho.
     r.tab("workstation")
     r.click('[data-wst="new"]')
     pg.select_option("#dv_a", "Computador")

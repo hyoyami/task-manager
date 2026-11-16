@@ -203,6 +203,32 @@ def main():
             assert status in ("agendada", "pendente"), status
             sol.pg.wait_for_function("state.notifs.some(n => /aceita/.test(n.txt))", timeout=15000)
 
+            # Tarefa aberta para a equipe: funcionário e admin tentam pegar ao mesmo tempo; só um consegue.
+            sol.click("#nfab")
+            sol.pg.fill("#f_t", "Aberta E2E")
+            sol.pg.fill("#f_d", "Sem responsável")
+            sol.click("#f_go")
+            func.pg.wait_for_function("openTasksForMe().some(t => t.title === 'Aberta E2E')", timeout=15000)
+            admin.pg.wait_for_function("openTasksForMe().some(t => t.title === 'Aberta E2E')", timeout=15000)
+            open_id = func.pg.evaluate("openTasksForMe().find(t => t.title === 'Aberta E2E').id")
+            claim = f"""async () => {{ try {{ await state.db.call('claim_task', {{ task_id: '{open_id}' }}); return 'ok'; }}
+                                     catch (e) {{ return e.message; }} }}"""
+            h1 = func.pg.evaluate_handle(claim)
+            h2 = admin.pg.evaluate_handle(claim)
+            results = sorted([h1.json_value(), h2.json_value()])
+            assert results == ["Outro funcionário já pegou esta tarefa.", "ok"], results
+            r = out.db_call(f"await db.call('claim_task', {{ task_id: '{open_id}' }})") if False else None
+
+            # Funcionário edita problemas da categoria (empresa), mas não renomeia a empresa.
+            r = func.db_call(f"await db.doc('companies/{company}').update({{ probs: {{ Impressora: ['Atolamento'] }} }})")
+            assert r == "ok", r
+            r = func.db_call(f"await db.doc('companies/{company}').update({{ name: 'Hackeada' }})")
+            assert r.startswith("erro"), r
+            r = func.db_call(f"await db.doc('companies/{company}').update({{ cargos: {{}} }})")
+            assert r.startswith("erro"), r
+            r = sol.db_call(f"await db.doc('companies/{company}').update({{ probs: {{}} }})")
+            assert r.startswith("erro"), r  # solicitante não edita nada da empresa
+
             # Segurança dentro da empresa.
             r = sol.db_call(f"await db.doc('profiles/{func_id}').update({{ name: 'Hacker' }})")
             assert r.startswith("erro"), r

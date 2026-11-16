@@ -35,7 +35,7 @@ function viewAccount() {
     + '<label>Nova senha</label><input type="password" id="pw_n" autocomplete="new-password">'
     + '<p><button class="small primary" id="pw_go">Alterar senha</button></p></div>'
     + when(isEmployee(), '<p class="row"><button class="small" data-go="folgas">Horário de trabalho e folgas</button>'
-      + '<button class="small" data-go="wcfg">Workstation configuração</button></p>');
+      + when(state.me.role === 'func', '<button class="small" data-go="wcfg">Configurações de trabalho</button>') + '</p>');
 }
 
 // ---------- Horário de trabalho e folgas ----------

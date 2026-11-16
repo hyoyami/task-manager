@@ -34,7 +34,8 @@ const timeRange = (t, none = 'Sem horário') =>
   (t.start ? fmtDayTime(t.start) + '–' + fmtTime(taskEnd(t)) : none);
 
 // ---------- Tarefas ----------
-const statusTags = (t) => tag(STATUS_LABEL[t.status]) + ' ' + tag(PRIORITY_LABEL[t.prio])
+const isOpenTask = (t) => !!t.pool && !t.emp;
+const statusTags = (t) => tag(isOpenTask(t) ? 'Aberta para a equipe' : STATUS_LABEL[t.status]) + ' ' + tag(PRIORITY_LABEL[t.prio])
   + when(t.dev, ' ' + tag('Manutenção'));
 
 const deviceLine = (t) => when(t.dev, '<div class="muted">Aparelho: ' + esc(t.devName || '')
@@ -105,7 +106,7 @@ function taskCard(t, { canControl = false, masked = false, draggable = false } =
   if (masked) return '<div class="card">' + taskTimeHeader(t) + '<b>Ocupado</b></div>';
   const drag = draggable && canControl && t.status === 'agendada';
   const moved = t.initial && t.start && t.initial !== t.start;
-  const who = canControl ? 'de ' + nameOf(t.req) : 'para ' + nameOf(t.emp);
+  const who = canControl ? 'de ' + nameOf(t.req) : isOpenTask(t) ? 'aberta para a equipe' + (t.cat ? ' (' + t.cat + ')' : '') : 'para ' + nameOf(t.emp);
   return '<div class="card prio-' + t.prio + when(t.status === 'andamento', ' running') + '" data-tid="' + t.id + '">'
     + taskTimeHeader(t)
     + '<div class="row between' + when(drag, ' drag-handle') + '"><b>' + when(drag, '⠿ ') + esc(t.title) + '</b><span>' + statusTags(t) + '</span></div>'
@@ -128,6 +129,25 @@ const dragCard = (t) => '<div class="card prio-' + t.prio + when(ui.selectedTask
   + '<div class="muted">de ' + esc(nameOf(t.req)) + '</div>'
   + '<div class="row mt-6">' + durationSelect(t) + actionButton('aceitar', t.id, 'Aceitar', 'primary') + actionButton('recusar', t.id, 'Recusar', 'danger') + '</div>'
   + '</div>';
+
+/**
+ * Tarefa aberta para a equipe, vista por quem pode assumi-la: escolhe a duração e aceita
+ * (o primeiro que aceitar fica com ela).
+ */
+function openTaskCard(t) {
+  const minutes = ui.poolDur[t.id] || 0;
+  const options = each(DURATION_OPTIONS, (v) => '<option value="' + v + '"' + when(minutes === v, ' selected') + '>' + v + ' min</option>');
+  return '<div class="card prio-' + t.prio + ' open-task" data-tid="' + t.id + '">'
+    + taskTimeHeader(t)
+    + '<div class="row between"><b>' + esc(t.title) + '</b>' + tag(PRIORITY_LABEL[t.prio]) + '</div>'
+    + '<div class="row gap-sm mt-6">' + tag('Aberta para a equipe') + when(t.cat, ' ' + tag(esc(t.cat))) + '</div>'
+    + when(t.desc, '<div class="muted mt-6">' + esc(t.desc) + '</div>')
+    + deviceLine(t)
+    + '<div class="muted">de ' + esc(nameOf(t.req)) + '</div>'
+    + '<div class="row mt-6"><select class="psel inline" data-i="' + t.id + '"><option value="">Duração…</option>' + options + '</select>'
+    + '<button class="small primary" data-claim="' + t.id + '">Aceitar</button></div>'
+    + '</div>';
+}
 
 /** Linha da aba Tarefas › Histórico (abre detalhes ao tocar). */
 const finishedRow = (t) => '<div class="card clickable prio-' + t.prio + '" data-open="' + t.id + '">'

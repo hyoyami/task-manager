@@ -1,7 +1,7 @@
 # TASK MANAGER — Agenda Inteligente de Tarefas
 
 Sistema web para distribuir tarefas entre **solicitantes** e **funcionários**, com agenda
-automática, controle de aparelhos (Workstation), logs de manutenção e tutoriais.
+automática, controle de aparelhos (Área de Trabalho), logs de manutenção e tutoriais.
 Funciona no celular e no computador.
 
 ## Funcionalidades
@@ -13,7 +13,7 @@ Funciona no celular e no computador.
 - **Funcionário:** define a duração e agenda as tarefas (arrastando o cartão para um horário livre
   ou automaticamente), inicia, pausa e conclui com relato.
 - **Agenda inteligente:** respeita jornada, intervalo, folgas semanais e pontuais; reorganiza por prioridade.
-- **Workstation:** cadastro de aparelhos por categoria, status e histórico (log) de manutenção;
+- **Área de Trabalho:** cadastro de aparelhos por categoria, status e histórico (log) de manutenção;
   organização livre arrastando os cartões e criação de grupos soltando um aparelho sobre outro.
 - **Tutoriais:** passo a passo com fotos para cada problema de manutenção.
 - Notificações, tema claro/escuro e troca rápida entre contas salvas.

@@ -32,7 +32,8 @@ function menuHtml() {
     + '<div class="menu-list">'
     + when(!active, item('onboarding', 'Entrar em uma empresa'))
     + when(active, item('tutoriais', 'Tutoriais')) + item('perfil', 'Configurações da conta')
-    + when(active && isEmployee(), item('wcfg', 'Workstation configuração') + item('folgas', 'Horário de trabalho e folgas'))
+    + when(active && state.me.role === 'func', item('wcfg', 'Configurações de trabalho'))
+    + when(active && isEmployee(), item('folgas', 'Horário de trabalho e folgas'))
     + when(active && isAdmin(), item('empresa', 'Empresa: membros e convites'))
     + '<button class="menu-item" data-sw="1">Trocar de conta</button>';
   if (ui.accountSwitcher) {

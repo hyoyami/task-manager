@@ -1,6 +1,6 @@
 /* ==========================================================================
-   Aparelhos: aba Aparelhos (solicitante, somente leitura), Workstation
-   (funcionário: configuração inicial e lista) e "Workstation configuração".
+   Aparelhos: aba Aparelhos (solicitante, somente leitura), Área de Trabalho
+   (funcionário: configuração inicial e lista) e "Configurações de trabalho".
    ========================================================================== */
 'use strict';
 
@@ -73,7 +73,7 @@ function viewDevices() {
       : emptyCard('Nenhum aparelho encontrado.', true));
 }
 
-// ---------- Workstation (funcionário) ----------
+// ---------- Área de Trabalho (funcionário) ----------
 function deviceForm() {
   return '<div class="card"><b>Novo aparelho</b>'
     + '<label>Categoria</label><select id="dv_a">' + each(myCategories(), (c) => '<option>' + esc(c.name) + '</option>') + '</select>'
@@ -101,7 +101,7 @@ function myDeviceList() {
 }
 
 function viewWorkstation() {
-  const title = '<h1>Workstation</h1>';
+  const title = '<h1>Área de Trabalho</h1>';
   const cargo = state.me.ws?.cargo;
   if (state.me.role === 'func' && (!cargo || !companyCargos()[cargo])) return title + chooseCargo();
   if (ui.wsStep === 'new') {
@@ -110,7 +110,7 @@ function viewWorkstation() {
   return title + myDeviceList();
 }
 
-// ---------- Workstation configuração ----------
+// ---------- Configurações de trabalho ----------
 /** Quem pode excluir o aparelho: quem cadastrou ou o administrador. */
 const canDeleteDevice = (d) => isAdmin() || d.owner === state.uid;
 
@@ -122,10 +122,12 @@ function viewWorkstationConfig() {
     + '</div></div>';
   const cargo = companyCargos()[state.me.ws?.cargo];
 
-  return '<h1>Workstation configuração</h1>'
-    + when(state.me.role === 'func', '<div class="card"><b>Minha função</b><p class="muted mb-0">'
-      + esc(cargo?.n || 'Não definida') + ' — vê as categorias: ' + esc(myCategories().map((c) => c.name).join(', ') || 'nenhuma') + '.</p>'
-      + '<p class="muted mb-0">Categorias, funções e problemas são definidos pelo administrador da empresa.</p></div>')
-    + when(isAdmin(), '<p class="muted">Categorias, funções e problemas ficam na aba <button class="small" data-tab="empresa">Empresa</button>.</p>')
+  // Só funcionários (o administrador faz tudo isso na aba Empresa).
+  return '<h1>Configurações de trabalho</h1>'
+    + '<div class="card"><b>Minha função</b><p class="muted mb-0">'
+    + esc(cargo?.n || 'Não definida') + ' — vê as categorias: ' + esc(myCategories().map((c) => c.name).join(', ') || 'nenhuma') + '.</p></div>'
+    + '<h2>Categorias e problemas</h2>'
+    + '<p class="muted">Toque numa categoria para editar os problemas de manutenção. Categorias com aparelhos só o administrador exclui.</p>'
+    + categoryManager(myCategories())
     + '<h2>Aparelhos</h2>' + (each(devices, deviceRow) || emptyCard('Nenhum aparelho cadastrado.'));
 }

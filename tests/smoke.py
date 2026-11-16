@@ -25,7 +25,7 @@ with sync_playwright() as p:
     pg.click("#ob_create")
     pg.wait_for_selector("nav button")
     tabs = pg.eval_on_selector_all("nav button", "e => e.map(x => x.textContent)")
-    assert tabs == ["Agenda", "Tarefas", "Equipe", "Workstation", "Empresa"], tabs
+    assert tabs == ["Agenda", "Tarefas", "Equipe", "Área de Trabalho", "Empresa"], tabs
     assert not errors, errors
     print("OK:", tabs)
     b.close()
