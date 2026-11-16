@@ -8,6 +8,7 @@
 const TEAM_REFRESH_MS = 30 * 1000;
 
 async function boot() {
+  captureInviteFromUrl(); // ?convite=… (link gerado pelo administrador)
   initEvents();
   setInterval(() => {
     if (!state.me) return;

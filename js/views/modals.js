@@ -121,11 +121,11 @@ function openDeviceLog(id) {
     + '<button id="dn_no">Fechar</button></div>', { wide: true });
 }
 
-/** Problemas de manutenção de uma categoria (editáveis pelo funcionário). */
+/** Problemas de manutenção de uma categoria (editados pelo administrador, na aba Empresa). */
 function openCategory(area) {
   ui.modal.category = area;
-  const list = problemsOf(state.me.ws, area);
-  openModal('<h2>' + categoryIcon(myCategories().find((c) => c.name === area)) + esc(area) + '</h2>'
+  const list = problemsOf(area);
+  openModal('<h2>' + categoryIcon(categoryByName(area)) + esc(area) + '</h2>'
     + '<p class="muted">Problemas de manutenção que o solicitante pode escolher ao criar uma tarefa para aparelhos desta categoria.</p>'
     + (each(list, (n, i) => '<div class="row between nowrap list-row"><span>' + esc(n) + '</span>'
       + removeButton('data-pdel="' + i + '"', 'Excluir problema') + '</div>') || '<p class="muted">Nenhum problema cadastrado.</p>')

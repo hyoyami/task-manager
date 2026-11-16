@@ -92,9 +92,26 @@
     };
   }
 
+  /** Equivalentes locais das funções do banco do Supabase (supabase/schema.sql). */
+  var functions = {
+    join_with_invite: async function (args) {
+      var invite = store['invites/' + args.code];
+      if (!invite || !currentAid || !store['profiles/' + currentAid]) throw new Error('Convite inválido.');
+      var profile = store['profiles/' + currentAid];
+      var patch = { company: invite.company, role: invite.role, status: 'active' };
+      if (invite.role === 'func') patch.ws = Object.assign({}, profile.ws || {}, { setup: false });
+      await docRef('profiles/' + currentAid).update(patch);
+      return invite.company;
+    },
+  };
+
   var db = {
     collection: function (name) { return collectionRef(name); },
     doc: function (path) { return docRef(path); },
+    call: async function (fn, args) {
+      if (!functions[fn]) throw new Error('Função desconhecida: ' + fn);
+      return functions[fn](args || {});
+    },
   };
 
   var user = { id: async function () { return 'local'; } };

@@ -68,7 +68,7 @@
   }
 
   function echo(table, fn) {
-    (subscriptions[table] || new Set()).forEach(function (s) { fn(s); if (s.ready) s.emit(); });
+    (subscriptions[table] || new Set()).forEach(function (s) { s.changes++; fn(s); if (s.ready) s.emit(); });
   }
 
   function docRef(path) {
@@ -116,6 +116,7 @@
         var sub = {
           cache: new Map(),
           ready: false,
+          changes: 0, // mudanças aplicadas (eco local ou tempo real) — ver load()
           match: function (d) { return !filter || (d && d[filter.field] === filter.value); },
           emit: function () {
             var docs = [];
@@ -128,13 +129,19 @@
         var closed = false;
 
         // Carrega o estado atual (de novo a cada (re)conexão do canal, para não perder
-        // mudanças feitas enquanto o canal ainda conectava).
-        function load() {
+        // mudanças feitas enquanto o canal ainda conectava). Só vale a resposta da carga
+        // mais recente; se chegou alguma mudança enquanto a consulta estava no ar, a
+        // resposta pode estar velha: consulta de novo em vez de sobrescrever o cache.
+        var loadSeq = 0;
+        function load(attempt) {
+          var seq = ++loadSeq;
+          var changesAtStart = sub.changes;
           var query = sb.from(name).select('id,data');
           if (filter) query = query.eq('data->>' + filter.field, filter.value);
           return query.then(function (r) {
-            if (closed) return;
+            if (closed || seq !== loadSeq) return;
             if (r.error) { if (onError) onError(fail(r.error)); return; }
+            if (sub.changes !== changesAtStart && (attempt || 0) < 3) return load((attempt || 0) + 1);
             sub.cache = new Map();
             r.data.forEach(function (row) { sub.cache.set(row.id, row.data); });
             sub.ready = true;
@@ -148,6 +155,7 @@
           if (closed) return;
           channel = sb.channel('tm-' + name + '-' + newId())
             .on('postgres_changes', { event: '*', schema: 'public', table: name }, function (ev) {
+              sub.changes++;
               if (ev.eventType === 'DELETE') sub.cache.delete(ev.old.id);
               else if (sub.match(ev.new.data)) sub.cache.set(ev.new.id, ev.new.data);
               else sub.cache.delete(ev.new.id);
@@ -169,6 +177,12 @@
   var db = {
     collection: function (name) { return collectionRef(name); },
     doc: function (path) { return docRef(path); },
+    /** Chama uma função do banco (RPC), ex.: join_with_invite. */
+    call: async function (fn, args) {
+      var r = await sb.rpc(fn, args || {});
+      if (r.error) throw fail(r.error);
+      return r.data;
+    },
   };
 
   // ---------- Login (Supabase Auth) ----------

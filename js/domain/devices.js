@@ -1,52 +1,24 @@
 /* ==========================================================================
-   Aparelhos (Workstation), categorias, problemas de manutenção e tutoriais.
-
-   Compatibilidade: perfis antigos podem ter `ws.areas` em vez de `ws.cats`.
+   Aparelhos (da empresa), organização pessoal da Workstation e tutoriais.
+   Categorias, funções e problemas ficam na empresa — ver domain/company.js.
    ========================================================================== */
 'use strict';
 
-/** Categorias próprias salvas no perfil (com fallback do formato antigo). */
-const savedCategories = (ws) => (ws && (ws.cats || ws.areas)) || [];
+const categoryOfDevice = (d) => categoryByName(d.area);
 
-/** Categorias visíveis do usuário logado: as do cargo + as criadas, menos as ocultas. */
-function myCategories() {
-  if (!state.me) return [];
-  const ws = state.me.ws || {};
-  const preset = (CARGOS[ws.cargo] || CARGOS.ti).cats;
-  const own = savedCategories(ws).filter((o) => !preset.some((p) => p.name === o.name));
-  return [...preset.map((c) => ({ ...c, id: c.name })), ...own]
-    .filter((c) => !(ws.hidden || []).includes(c.name));
-}
+/** O usuário gerencia o aparelho na Workstation? (executa tarefas e a categoria é da função dele) */
+const managesDevice = (profile, d) => executes(profile) && canSeeCategory(profile, d.area);
 
-/** Categoria (com ícone) pelo nome, conforme o perfil do responsável. */
-function categoryByName(owner, name) {
-  const own = savedCategories(state.profiles[owner]?.ws);
-  return own.find((c) => c.name === name && isDataUrl(c.icon))
-    || CARGOS.ti.cats.find((c) => c.name === name)
-    || own.find((c) => c.name === name)
-    || null;
-}
-
-const categoryOfDevice = (d) => categoryByName(d.owner, d.area);
-
-/** Todas as categorias conhecidas no sistema (para os tutoriais). */
+/** Todas as categorias conhecidas na empresa (para os tutoriais). */
 function allCategories() {
-  const names = new Set(CARGOS.ti.cats.map((c) => c.name));
-  Object.values(state.profiles).forEach((p) => savedCategories(p.ws).forEach((c) => names.add(c.name)));
+  const names = new Set(companyCategories().map((c) => c.name));
   Object.values(state.devices).forEach((d) => names.add(d.area));
   return [...names];
 }
 
-/** Problemas de manutenção de uma categoria (do perfil, ou os de fábrica). */
-function problemsOf(ws, area) {
-  const list = ws?.probs?.[area];
-  return Array.isArray(list) ? list : (PRESETS[area] || []);
-}
-
-/** Todos os problemas de uma categoria, somando funcionários e tutoriais existentes. */
+/** Todos os problemas de uma categoria, somando os tutoriais existentes. */
 function allProblems(cat) {
-  const names = new Set(PRESETS[cat] || []);
-  employees().filter((p) => p.ws).forEach((p) => problemsOf(p.ws, cat).forEach((x) => names.add(x)));
+  const names = new Set(problemsOf(cat));
   Object.values(state.tutorials).filter((x) => x.cat === cat).forEach((x) => names.add(x.prob));
   return [...names];
 }
@@ -59,15 +31,12 @@ async function updateWorkstation(patch) {
   await updateMyProfile({ ws });
 }
 
-const saveProblems = (area, list) =>
-  updateWorkstation({ probs: { ...(state.me.ws?.probs || {}), [area]: list } });
-
 // ---------- Aparelhos ----------
 async function createDevice({ name, ip, area }) {
   const ref = newDoc('devices');
   const now = Date.now();
   const device = {
-    id: ref.id, owner: state.uid, name, ip, area, status: 'Operacional', created: now,
+    id: ref.id, company: state.me.company, owner: state.uid, name, ip, area, status: 'Operacional', created: now,
     log: [{ t: now, x: 'Aparelho cadastrado (IP ' + ip + ')' }],
   };
   state.devices[device.id] = state.myDevices[device.id] = device;
@@ -92,16 +61,6 @@ async function addDeviceLog(id, text, patch = {}) {
   await doc('devices/' + id).update({ ...patch, log: updated.log });
 }
 
-/** Exclui a categoria (e seus aparelhos) e a oculta da lista. */
-async function deleteCategory(name) {
-  for (const d of Object.values(state.myDevices).filter((x) => x.area === name)) await deleteDevice(d.id);
-  const ws = state.me.ws || {};
-  await updateWorkstation({
-    cats: savedCategories(ws).filter((c) => c.name !== name),
-    hidden: [...new Set([...(ws.hidden || []), name])],
-  });
-}
-
 // ---------- Tutoriais ----------
 /** Passos do tutorial de (categoria, problema), em ordem. */
 const tutorialSteps = (cat, prob) => Object.values(state.tutorials)
@@ -110,7 +69,7 @@ const tutorialSteps = (cat, prob) => Object.values(state.tutorials)
 
 async function addTutorialStep(cat, prob, img, txt) {
   const ref = newDoc('tutorials');
-  const step = { id: ref.id, cat, prob, order: Date.now(), img, txt, by: state.uid };
+  const step = { id: ref.id, company: state.me.company, cat, prob, order: Date.now(), img, txt, by: state.uid };
   state.tutorials[ref.id] = step;
   try {
     await ref.set(step);

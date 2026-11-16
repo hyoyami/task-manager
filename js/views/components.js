@@ -133,7 +133,7 @@ const dragCard = (t) => '<div class="card prio-' + t.prio + when(ui.selectedTask
 const finishedRow = (t) => '<div class="card clickable prio-' + t.prio + '" data-open="' + t.id + '">'
   + '<div class="row between"><b>' + esc(t.title) + '</b>' + tag(STATUS_LABEL[t.status]) + '</div>'
   + '<div class="muted">' + fmtDateTime(finishedAt(t)) + ' · '
-  + esc(isEmployee() ? 'de ' + nameOf(t.req) : 'para ' + nameOf(t.emp)) + '</div></div>';
+  + esc(t.emp === state.uid ? 'de ' + nameOf(t.req) : 'para ' + nameOf(t.emp)) + '</div></div>';
 
 // ---------- Aparelhos ----------
 const deviceStatusStyle = (d) => DEVICE_STATUS_STYLE[d.status] || DEVICE_STATUS_STYLE.Operacional;
@@ -150,7 +150,7 @@ function deviceCard(d, own) {
     + '<div class="device-ip">IP: ' + esc(d.ip || '—') + '</div>'
     + '<div class="device-status">status: ' + st.label
     + ' <span class="status-dot" style="background:' + st.color + ';box-shadow:0 0 8px ' + st.color + '"></span></div>'
-    + '<div class="muted device-meta">' + esc(d.area) + ' · ' + esc(nameOf(d.owner)) + '</div>'
+    + '<div class="muted device-meta">' + esc(d.area) + '</div>'
     + '<button class="small" ' + (own ? 'data-dev' : 'data-rodev') + '="' + d.id + '">'
     + (own ? 'Abrir / Log' : 'Ver log') + '</button></div>';
 }

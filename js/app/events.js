@@ -52,6 +52,15 @@ async function onChange(e) {
       render();
     } else if (x.id === 'f_v') {
       $('#f_kbox').innerHTML = problemPicker(x.value);
+      $('#f_ebox').innerHTML = employeePicker(x.value);
+    } else if (x.classList.contains('m-role')) {
+      await setMemberRole(x.dataset.id, x.value);
+      say(nameOf(x.dataset.id) + ' agora é ' + ROLE_LABEL[x.value] + '.');
+    } else if (x.classList.contains('m-cargo') && x.value) {
+      await setMemberCargo(x.dataset.id, x.value);
+      say('Função de ' + nameOf(x.dataset.id) + ' alterada.');
+    } else if (x.classList.contains('cg-cat')) {
+      await toggleCargoCategory(x.dataset.cargo, x.dataset.cgcat, x.checked);
     } else if (x.classList.contains('dsel') && +x.value) {
       x.blur();
       await setDuration(x.dataset.i, +x.value);

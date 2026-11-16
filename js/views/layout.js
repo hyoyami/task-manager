@@ -17,17 +17,23 @@ function headerHtml() {
 }
 
 function navHtml() {
+  const badge = (key) => (key === 'empresa' && state.joinRequests.length ? '<span class="badge">' + state.joinRequests.length + '</span>' : '');
   return each(tabsFor(state.me.role), ([key, label]) =>
-    '<button data-tab="' + key + '" class="' + when(ui.tab === key, 'on') + '">' + label + '</button>');
+    '<button data-tab="' + key + '" class="' + when(ui.tab === key, 'on') + '">' + label + badge(key) + '</button>');
 }
 
 function menuHtml() {
   const me = state.me;
   const item = (go, label) => '<button class="menu-item" data-go="' + go + '">' + label + '</button>';
+  const active = isActiveMember();
   let h = '<div class="row nowrap menu-profile">' + avatar(me.id, me.name, 42)
-    + '<div><b>' + esc(me.name) + '</b><div class="muted">' + (isEmployee() ? 'Funcionário' : 'Solicitante') + '</div></div></div>'
-    + '<div class="menu-list">' + item('tutoriais', 'Tutoriais') + item('perfil', 'Configurações da conta')
-    + when(isEmployee(), item('wcfg', 'Workstation configuração') + item('folgas', 'Horário de trabalho e folgas'))
+    + '<div><b>' + esc(me.name) + '</b><div class="muted">'
+    + (active ? esc(ROLE_LABEL[me.role] || '') + ' · ' + esc(state.company.name) : 'Sem empresa') + '</div></div></div>'
+    + '<div class="menu-list">'
+    + when(!active, item('onboarding', 'Entrar em uma empresa'))
+    + when(active, item('tutoriais', 'Tutoriais')) + item('perfil', 'Configurações da conta')
+    + when(active && isEmployee(), item('wcfg', 'Workstation configuração') + item('folgas', 'Horário de trabalho e folgas'))
+    + when(active && isAdmin(), item('empresa', 'Empresa: membros e convites'))
     + '<button class="menu-item" data-sw="1">Trocar de conta</button>';
   if (ui.accountSwitcher) {
     const others = savedAccounts().filter((a) => a.id !== state.uid);

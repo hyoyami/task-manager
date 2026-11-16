@@ -15,15 +15,24 @@ const state = {
   uid: null,
   me: null,
 
-  /** profiles/<id> → perfil (+ id). */
+  /** Empresa do usuário logado (companies/<id> + id) — só quando ele é membro ativo. */
+  company: null,
+  /** Todas as empresas (para a lista "pedir para entrar"). */
+  companies: {},
+  /** Pedidos de entrada pendentes na empresa (visível ao administrador). */
+  joinRequests: [],
+  /** Links de convite da empresa (administrador): invites/<código>. */
+  invites: {},
+
+  /** profiles/<id> → membros ativos da empresa (+ o próprio usuário). */
   profiles: {},
   /** tasks/<id> → tarefa. */
   tasks: {},
   /** Notificações do usuário logado (+ _id). */
   notifs: [],
-  /** devices/<id> → todos os aparelhos. */
+  /** devices/<id> → aparelhos da empresa. */
   devices: {},
-  /** Subconjunto de `devices` cujo responsável é o usuário logado. */
+  /** Aparelhos que o usuário logado gerencia na Workstation (categorias da função dele). */
   myDevices: {},
   /** tutorials/<id> → passo de tutorial. */
   tutorials: {},
@@ -84,7 +93,10 @@ const ui = {
 
 /** Zera dados e interface ao sair ou trocar de conta. */
 function resetSession() {
-  Object.assign(state, { me: null, profiles: {}, tasks: {}, notifs: [], devices: {}, myDevices: {}, tutorials: {} });
+  Object.assign(state, {
+    me: null, company: null, companies: {}, joinRequests: [], invites: {},
+    profiles: {}, tasks: {}, notifs: [], devices: {}, myDevices: {}, tutorials: {},
+  });
   Object.assign(ui, {
     tab: 'agenda',
     agendaEmp: null,
@@ -106,6 +118,14 @@ const updateMyProfile = (patch) => doc('profiles/' + state.uid).update(patch);
 /** Perfil com a jornada padrão preenchida. */
 const profileOf = (id) => ({ ...DEFAULT_SCHEDULE, ...(state.profiles[id] || {}) });
 const nameOf = (id) => state.profiles[id]?.name || '—';
-const employees = () => Object.values(state.profiles).filter((p) => p.role === 'func');
-const isEmployee = () => state.me?.role === 'func';
+/** Quem executa tarefas (agenda própria): funcionários e o administrador. */
+const executes = (p) => p?.role === 'func' || p?.role === 'admin';
+const employees = () => Object.values(state.profiles).filter(executes);
+const isAdmin = () => state.me?.role === 'admin';
+/** Usuário logado executa tarefas (funcionário ou administrador). */
+const isEmployee = () => executes(state.me);
+/** Usuário logado pede tarefas (solicitante ou administrador). */
+const canRequest = () => state.me?.role === 'sol' || state.me?.role === 'admin';
+/** Membro ativo de uma empresa (senão, fica na tela de entrada/aprovação). */
+const isActiveMember = () => !!(state.me?.company && state.me.status === 'active' && state.company);
 const allTasks = () => Object.values(state.tasks);

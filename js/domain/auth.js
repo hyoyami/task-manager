@@ -37,7 +37,6 @@ async function submitAuth() {
   if (!isValidEmail(email)) return fail('Informe um e-mail válido.');
   if (password.length < 6) return fail('A senha precisa ter ao menos 6 caracteres.');
   const name = signup ? $('#a_n').value.trim() : '';
-  const role = signup ? $('#a_r').value : '';
   if (signup && !name) return fail('Informe seu nome.');
 
   let id;
@@ -47,7 +46,8 @@ async function submitAuth() {
     return fail(err.message);
   }
 
-  if (signup) await doc('profiles/' + id).set({ ...DEFAULT_SCHEDULE, name, role, seen: 0, ck: id, email });
+  // Papel e empresa são definidos depois: criando uma empresa, pedindo entrada ou por convite.
+  if (signup) await doc('profiles/' + id).set({ ...DEFAULT_SCHEDULE, name, role: null, company: null, status: null, seen: 0, ck: id, email });
   else await doc('profiles/' + id).update({ email }).catch(() => {});
   ui.authMsg = '';
   startSession(id);
@@ -118,32 +118,91 @@ async function changePassword() {
 }
 
 // ---------- Sincronização em tempo real ----------
+/** Último conteúdo recebido de cada coleção (antes do filtro por empresa). */
+const raw = { profiles: {}, companies: {}, invites: {}, tasks: {}, devices: {}, tutorials: {}, notifs: [] };
+
+/**
+ * Recalcula o estado visível a partir do que chegou do banco, limitado à empresa do usuário.
+ * (No Supabase o RLS já faz esse filtro no servidor; no modo local, é aqui que ele acontece.)
+ */
+function applyCompanyScope() {
+  const me = raw.profiles[state.uid] || null;
+  const companyId = me?.status === 'active' ? me.company : null;
+  const inCompany = (x) => !!companyId && x.company === companyId;
+  const pick = (map) => Object.fromEntries(Object.entries(map).filter(([, v]) => inCompany(v)));
+
+  state.me = me;
+  state.companies = raw.companies;
+  state.company = companyId && raw.companies[companyId] ? { ...raw.companies[companyId], id: companyId } : null;
+  state.profiles = Object.fromEntries(Object.values(raw.profiles)
+    .filter((p) => p.id === state.uid || (inCompany(p) && p.status === 'active'))
+    .map((p) => [p.id, p]));
+  state.joinRequests = me?.role === 'admin'
+    ? Object.values(raw.profiles).filter((p) => inCompany(p) && p.status === 'pending').sort((a, b) => (a.requestedAt || 0) - (b.requestedAt || 0))
+    : [];
+  state.invites = me?.role === 'admin' ? pick(raw.invites) : {};
+  state.tasks = pick(raw.tasks);
+  state.devices = pick(raw.devices);
+  state.myDevices = Object.fromEntries(Object.entries(state.devices).filter(([, d]) => managesDevice(me, d)));
+  state.tutorials = pick(raw.tutorials);
+  state.notifs = raw.notifs.filter((n) => !n.company || inCompany(n));
+}
+
+/** Convite pendente (link aberto antes de entrar): usa assim que o perfil carregar. */
+let joiningInvite = false;
+async function usePendingInvite() {
+  const code = pendingInvite();
+  if (!code || joiningInvite || !state.me) return;
+  if (state.me.status === 'active' && state.me.company) {
+    clearPendingInvite();
+    return say('Você já participa de uma empresa; o convite foi ignorado.');
+  }
+  joiningInvite = true;
+  try {
+    await joinWithInvite(code);
+    say('Convite aceito! Você entrou na empresa.');
+  } catch (err) {
+    console.warn(err);
+    say('Convite inválido ou expirado. Peça um novo link ao administrador.');
+  } finally {
+    clearPendingInvite();
+    joiningInvite = false;
+  }
+}
+
 /** Assina as coleções do banco para a conta `aid`. */
 function startSession(aid) {
   state.uid = aid;
+  ui.scopeKey = undefined;
   ui.knownNotifs = new Set();
   ui.notifsLoaded = false;
   stopSync();
+  Object.assign(raw, { profiles: {}, companies: {}, invites: {}, tasks: {}, devices: {}, tutorials: {}, notifs: [] });
   const db = state.db;
   const onError = (err) => console.error(err);
+  const refresh = () => { applyCompanyScope(); render(); };
+  const mapOf = (snap, withId) => Object.fromEntries(snap.docs.map((d) => [d.id, withId ? { ...d.data(), id: d.id } : d.data()]));
 
   ui.unsubscribers.push(
     db.collection('profiles').onSnapshot((snap) => {
-      state.profiles = {};
-      snap.docs.forEach((d) => { state.profiles[d.id] = { ...d.data(), id: d.id }; });
-      state.me = state.profiles[state.uid] || null;
+      raw.profiles = mapOf(snap, true);
       // Sessão de uma conta que não existe mais neste banco.
-      if (!state.me && snap.docs.length && state.uid) return logout();
+      if (!raw.profiles[state.uid] && snap.docs.length && state.uid) return logout();
+      // Entrou, saiu ou foi aprovado numa empresa: o que o banco deixa ver mudou → recarrega tudo.
+      const me = raw.profiles[state.uid];
+      const scopeKey = me ? (me.status || '') + '|' + (me.company || '') : '';
+      if (ui.scopeKey !== undefined && scopeKey !== ui.scopeKey) return startSession(state.uid);
+      ui.scopeKey = scopeKey;
+      applyCompanyScope();
       rememberAccount();
       if (state.me?.theme && state.me.theme !== currentTheme()) applyTheme(state.me.theme);
       render();
+      usePendingInvite();
     }, onError),
 
-    db.collection('tasks').onSnapshot((snap) => {
-      state.tasks = {};
-      snap.docs.forEach((d) => { state.tasks[d.id] = d.data(); });
-      render();
-    }, onError),
+    db.collection('companies').onSnapshot((snap) => { raw.companies = mapOf(snap, true); refresh(); }, onError),
+    db.collection('invites').onSnapshot((snap) => { raw.invites = mapOf(snap, true); refresh(); }, onError),
+    db.collection('tasks').onSnapshot((snap) => { raw.tasks = mapOf(snap); refresh(); }, onError),
 
     db.collection('notifs').where('to', '==', aid).onSnapshot((snap) => {
       const list = snap.docs.map((d) => ({ ...d.data(), _id: d.id }));
@@ -152,25 +211,13 @@ function startSession(aid) {
       }
       list.forEach((n) => ui.knownNotifs.add(n._id));
       ui.notifsLoaded = true;
-      state.notifs = list;
-      render();
+      raw.notifs = list;
+      refresh();
     }, onError),
 
-    db.collection('devices').onSnapshot((snap) => {
-      state.devices = {};
-      state.myDevices = {};
-      snap.docs.forEach((d) => {
-        const v = d.data();
-        state.devices[d.id] = v;
-        if (v.owner === state.uid) state.myDevices[d.id] = v;
-      });
-      render();
-    }, (err) => { onError(err); say('Não foi possível carregar os aparelhos.'); }),
+    db.collection('devices').onSnapshot((snap) => { raw.devices = mapOf(snap); refresh(); },
+      (err) => { onError(err); say('Não foi possível carregar os aparelhos.'); }),
 
-    db.collection('tutorials').onSnapshot((snap) => {
-      state.tutorials = {};
-      snap.docs.forEach((d) => { state.tutorials[d.id] = d.data(); });
-      render();
-    }, onError),
+    db.collection('tutorials').onSnapshot((snap) => { raw.tutorials = mapOf(snap); refresh(); }, onError),
   );
 }

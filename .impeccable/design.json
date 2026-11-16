@@ -1,0 +1,632 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-16T03:16:48+00:00",
+  "title": "Design System: TASK MANAGER",
+  "extensions": {
+    "colorMeta": {
+      "papel": {
+        "role": "neutral",
+        "displayName": "Papel",
+        "canonical": "#f1f1f1",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "folha": {
+        "role": "neutral",
+        "displayName": "Folha",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "tinta": {
+        "role": "neutral",
+        "displayName": "Tinta",
+        "canonical": "#161616",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "lapis": {
+        "role": "neutral",
+        "displayName": "Lápis",
+        "canonical": "#6a6a6a",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "risco": {
+        "role": "neutral",
+        "displayName": "Risco",
+        "canonical": "#dedede",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "carvao": {
+        "role": "primary",
+        "displayName": "Carvão",
+        "canonical": "#262626",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "sobre-carvao": {
+        "role": "primary",
+        "displayName": "Sobre-Carvão",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "carvao-suave": {
+        "role": "primary",
+        "displayName": "Carvão Suave",
+        "canonical": "#ececec",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "lacuna": {
+        "role": "neutral",
+        "displayName": "Lacuna",
+        "canonical": "#f6f6f6",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "urgencia-alta": {
+        "role": "secondary",
+        "displayName": "Urgência Alta",
+        "canonical": "#dc2626",
+        "tonalRamp": [
+          "#2e0000",
+          "#590000",
+          "#870000",
+          "#b9000f",
+          "#e23e37",
+          "#ff7266",
+          "#ffa193",
+          "#ffcfc2"
+        ]
+      },
+      "urgencia-neutra": {
+        "role": "secondary",
+        "displayName": "Urgência Neutra",
+        "canonical": "#d97706",
+        "tonalRamp": [
+          "#230000",
+          "#480e00",
+          "#712900",
+          "#9c4500",
+          "#c16700",
+          "#e08f4d",
+          "#feb881",
+          "#ffe1b4"
+        ]
+      },
+      "urgencia-baixa": {
+        "role": "secondary",
+        "displayName": "Urgência Baixa",
+        "canonical": "#2f9e6b",
+        "tonalRamp": [
+          "#001302",
+          "#003114",
+          "#00522d",
+          "#007548",
+          "#339768",
+          "#68b98e",
+          "#98dbb5",
+          "#c7fedd"
+        ]
+      },
+      "status-operacional": {
+        "role": "tertiary",
+        "displayName": "Operacional",
+        "canonical": "#22c55e",
+        "tonalRamp": [
+          "#001500",
+          "#003400",
+          "#005600",
+          "#007b1a",
+          "#009e40",
+          "#50bf6d",
+          "#87e19a",
+          "#baffc8"
+        ]
+      },
+      "status-manutencao": {
+        "role": "tertiary",
+        "displayName": "Em Manutenção",
+        "canonical": "#f59e0b",
+        "tonalRamp": [
+          "#210000",
+          "#451300",
+          "#6c2e00",
+          "#964b00",
+          "#bb6d00",
+          "#da9538",
+          "#f9bc74",
+          "#ffe4aa"
+        ]
+      },
+      "status-parado": {
+        "role": "tertiary",
+        "displayName": "Parado",
+        "canonical": "#ef4444",
+        "tonalRamp": [
+          "#2d0000",
+          "#570000",
+          "#850005",
+          "#b60c1e",
+          "#df4141",
+          "#fd746d",
+          "#ffa299",
+          "#ffd0c6"
+        ]
+      },
+      "noite-papel": {
+        "role": "neutral",
+        "displayName": "Papel (tema escuro)",
+        "canonical": "#0a0a0a",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "noite-folha": {
+        "role": "neutral",
+        "displayName": "Folha (tema escuro)",
+        "canonical": "#141414",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "noite-tinta": {
+        "role": "neutral",
+        "displayName": "Tinta (tema escuro)",
+        "canonical": "#eaeaea",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "noite-lapis": {
+        "role": "neutral",
+        "displayName": "Lápis (tema escuro)",
+        "canonical": "#8e8e8e",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "noite-risco": {
+        "role": "neutral",
+        "displayName": "Risco (tema escuro)",
+        "canonical": "#262626",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "noite-carvao": {
+        "role": "primary",
+        "displayName": "Carvão (tema escuro)",
+        "canonical": "#d6d6d6",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "noite-sobre-carvao": {
+        "role": "primary",
+        "displayName": "Sobre-Carvão (tema escuro)",
+        "canonical": "#0a0a0a",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "noite-carvao-suave": {
+        "role": "primary",
+        "displayName": "Carvão Suave (tema escuro)",
+        "canonical": "#1f1f1f",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "noite-lacuna": {
+        "role": "neutral",
+        "displayName": "Lacuna (tema escuro)",
+        "canonical": "#101010",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "noite-urgencia-alta": {
+        "role": "secondary",
+        "displayName": "Urgência Alta (tema escuro)",
+        "canonical": "#ef4444",
+        "tonalRamp": [
+          "#2d0000",
+          "#570000",
+          "#850005",
+          "#b60c1e",
+          "#df4141",
+          "#fd746d",
+          "#ffa299",
+          "#ffd0c6"
+        ]
+      },
+      "noite-urgencia-neutra": {
+        "role": "secondary",
+        "displayName": "Urgência Neutra (tema escuro)",
+        "canonical": "#f59e0b",
+        "tonalRamp": [
+          "#210000",
+          "#451300",
+          "#6c2e00",
+          "#964b00",
+          "#bb6d00",
+          "#da9538",
+          "#f9bc74",
+          "#ffe4aa"
+        ]
+      },
+      "noite-urgencia-baixa": {
+        "role": "secondary",
+        "displayName": "Urgência Baixa (tema escuro)",
+        "canonical": "#34b97d",
+        "tonalRamp": [
+          "#001401",
+          "#003211",
+          "#005329",
+          "#007744",
+          "#149a64",
+          "#5cbb8a",
+          "#8fddb2",
+          "#c0ffdb"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Marca TASK MANAGER na tela de entrada."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Título de cada aba."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Seções e títulos de modal."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Texto corrido, campos e botões."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Rótulos, detalhes e botões pequenos."
+      },
+      "numeral": {
+        "displayName": "Numeral",
+        "purpose": "Horários de início e previsão de término (22px no painel em execução)."
+      },
+      "caption": {
+        "displayName": "Caption",
+        "purpose": "Etiquetas e rótulos em caixa alta sobre os horários."
+      }
+    },
+    "shadows": [
+      {
+        "name": "papel",
+        "value": "0 1px 3px rgba(0,0,0,.05)",
+        "purpose": "Cartões no tema claro (none no escuro)."
+      },
+      {
+        "name": "flutuante",
+        "value": "0 6px 18px rgba(0,0,0,.3)",
+        "purpose": "Botão +."
+      },
+      {
+        "name": "arrastando",
+        "value": "0 8px 24px rgba(0,0,0,.3)",
+        "purpose": "Cartão sendo arrastado."
+      },
+      {
+        "name": "aviso",
+        "value": "0 8px 28px rgba(0,0,0,.22)",
+        "purpose": "Pop-ups de notificação (com backdrop-filter: blur(12px))."
+      },
+      {
+        "name": "halo-urgencia",
+        "value": "0 0 0 3px color-mix(in srgb, var(--prio) 18%, transparent)",
+        "purpose": "Tarefa em andamento."
+      }
+    ],
+    "motion": [
+      {
+        "name": "estado",
+        "value": ".15s",
+        "purpose": "Hover/fundo e borda de botões."
+      },
+      {
+        "name": "gaveta",
+        "value": "transform .22s",
+        "purpose": "Menu e painel de notificações deslizando."
+      },
+      {
+        "name": "aviso-entra",
+        "value": ".28s cubic-bezier(.2,.8,.2,1)",
+        "purpose": "Pop-up de notificação surgindo."
+      },
+      {
+        "name": "aviso-sai",
+        "value": ".32s ease-in",
+        "purpose": "Pop-up saindo para a direita."
+      },
+      {
+        "name": "destaque",
+        "value": "1.6s ease-out",
+        "purpose": "Piscada do cartão ao ir até a tarefa na agenda."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "desktop",
+        "value": "900px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Botão principal",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Uma ação principal por contexto (Salvar, Aceitar, Concluir).",
+      "html": "<button class=\"ds-btn-primary\">Concluir</button>",
+      "css": ".ds-btn-primary{font:15px/1.4 system-ui,-apple-system,\"Segoe UI\",sans-serif;background:var(--accent,#262626);color:var(--on-accent,#fff);border:1px solid var(--accent,#262626);border-radius:9px;padding:9px 11px;cursor:pointer;transition:background .15s,border-color .15s}.ds-btn-primary:focus-visible{outline:2px solid var(--accent,#262626);outline-offset:2px}"
+    },
+    {
+      "name": "Botão padrão",
+      "kind": "button",
+      "refersTo": "button",
+      "description": "Ações secundárias; hover em Carvão Suave.",
+      "html": "<button class=\"ds-btn\">Histórico</button>",
+      "css": ".ds-btn{font:15px/1.4 system-ui,-apple-system,\"Segoe UI\",sans-serif;background:var(--surface,#fff);color:var(--text,#161616);border:1px solid var(--border,#dedede);border-radius:9px;padding:9px 11px;cursor:pointer;transition:background .15s}.ds-btn:hover{background:var(--accent-soft,#ececec)}.ds-btn:focus-visible{outline:2px solid var(--accent,#262626);outline-offset:2px}"
+    },
+    {
+      "name": "Botão pequeno de perigo",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Cancelar/Recusar dentro de cartões.",
+      "html": "<button class=\"ds-btn-danger\">Cancelar</button>",
+      "css": ".ds-btn-danger{font:13px system-ui,-apple-system,\"Segoe UI\",sans-serif;background:var(--surface,#fff);color:var(--danger,#dc2626);border:1px solid var(--border,#dedede);border-radius:9px;padding:6px 10px;cursor:pointer;transition:background .15s}.ds-btn-danger:hover{background:var(--accent-soft,#ececec)}.ds-btn-danger:focus-visible{outline:2px solid var(--accent,#262626);outline-offset:2px}"
+    },
+    {
+      "name": "Campo",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Campo com rótulo em 13px acima; foco com contorno Carvão.",
+      "html": "<label class=\"ds-label\">Nome do aparelho<input class=\"ds-input\" placeholder=\"Ex.: PC Recepção\"></label>",
+      "css": ".ds-label{display:block;font:13px system-ui,-apple-system,\"Segoe UI\",sans-serif;color:var(--muted,#6a6a6a)}.ds-input{display:block;width:100%;margin-top:4px;font:15px/1.4 system-ui,-apple-system,\"Segoe UI\",sans-serif;color:var(--text,#161616);background:var(--surface,#fff);border:1px solid var(--border,#dedede);border-radius:9px;padding:9px 11px}.ds-input:focus{outline:2px solid var(--accent,#262626);border-color:var(--accent,#262626)}"
+    },
+    {
+      "name": "Etiqueta",
+      "kind": "chip",
+      "refersTo": "tag",
+      "description": "Status, prioridade, categoria — informativa.",
+      "html": "<span class=\"ds-tag\">Agendada</span> <span class=\"ds-tag\">Alta</span>",
+      "css": ".ds-tag{display:inline-block;font:11px system-ui,-apple-system,\"Segoe UI\",sans-serif;padding:2px 8px;border-radius:99px;border:1px solid var(--border,#dedede);background:var(--accent-soft,#ececec);color:var(--text,#161616)}"
+    },
+    {
+      "name": "Cartão de tarefa",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Início → previsão de término no topo, fio, título; faixa de urgência à esquerda.",
+      "html": "<div class=\"ds-task\"><div class=\"ds-time\"><span><small>INÍCIO</small><b>09:30</b></span><span class=\"ds-arrow\">→</span><span><small>PREVISÃO DE TÉRMINO</small><b>10:00</b></span><em>30 min</em></div><hr><div class=\"ds-head\"><b>Instalar Office</b><span class=\"ds-tag2\">Alta</span></div><div class=\"ds-muted\">qua., 11/11 · 30 min · de Bruno</div></div>",
+      "css": ".ds-task{font:15px/1.4 system-ui,-apple-system,\"Segoe UI\",sans-serif;color:var(--text,#161616);background:var(--surface,#fff);border:1px solid var(--border,#dedede);border-left:4px solid var(--danger,#dc2626);border-radius:14px;padding:12px;box-shadow:0 1px 3px rgba(0,0,0,.05);max-width:360px}.ds-time{display:flex;align-items:flex-end;gap:12px;color:var(--muted,#6a6a6a);font-size:13px}.ds-time span{display:flex;flex-direction:column;line-height:1.2}.ds-time small{font-size:11px;letter-spacing:.4px}.ds-time b{font-size:17px;color:var(--text,#161616)}.ds-time em{margin-left:auto;font-style:normal}.ds-task hr{border:0;border-top:1px solid var(--border,#dedede);margin:8px 0 10px}.ds-head{display:flex;justify-content:space-between;align-items:center}.ds-tag2{font-size:11px;padding:2px 8px;border-radius:99px;border:1px solid var(--border,#dedede);background:var(--accent-soft,#ececec)}.ds-muted{color:var(--muted,#6a6a6a);font-size:13px}"
+    },
+    {
+      "name": "Cartão de aparelho",
+      "kind": "custom",
+      "refersTo": "device-card",
+      "description": "Nome em caixa alta, ícone da categoria, IP e ponto luminoso de status.",
+      "html": "<div class=\"ds-dev\"><div class=\"ds-dev-name\">HP Recepção</div><div class=\"ds-dev-icon\">🖨️</div><div class=\"ds-dev-ip\">IP: 192.168.0.10</div><div class=\"ds-dev-st\">status: em manutenção <i></i></div><button class=\"ds-dev-btn\">Abrir / Log</button></div>",
+      "css": ".ds-dev{font:15px/1.4 system-ui,-apple-system,\"Segoe UI\",sans-serif;color:var(--text,#161616);background:var(--surface,#fff);border:1px solid var(--border,#dedede);border-radius:18px;padding:18px 14px;text-align:center;max-width:280px}.ds-dev-name{font-weight:800;font-size:19px;text-transform:uppercase;letter-spacing:.5px}.ds-dev-icon{font-size:76px;line-height:1;margin:12px 0}.ds-dev-ip{font-weight:700;font-size:17px}.ds-dev-st{color:var(--muted,#6a6a6a);font-weight:600;margin-top:4px}.ds-dev-st i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-left:6px;background:#f59e0b;box-shadow:0 0 8px #f59e0b}.ds-dev-btn{margin-top:10px;font:13px system-ui,-apple-system,\"Segoe UI\",sans-serif;background:var(--surface,#fff);color:var(--text,#161616);border:1px solid var(--border,#dedede);border-radius:9px;padding:6px 10px;cursor:pointer}.ds-dev-btn:hover{background:var(--accent-soft,#ececec)}"
+    },
+    {
+      "name": "Navegação inferior",
+      "kind": "nav",
+      "refersTo": "nav-item",
+      "description": "Barra fixa no celular; aba ativa em Carvão com traço superior.",
+      "html": "<nav class=\"ds-nav\"><button class=\"on\">Agenda</button><button>Tarefas</button><button>Workstation</button></nav>",
+      "css": ".ds-nav{display:flex;background:var(--surface,#fff);border-top:1px solid var(--border,#dedede);max-width:420px}.ds-nav button{flex:1;border:0;background:none;padding:12px 4px;font:12px system-ui,-apple-system,\"Segoe UI\",sans-serif;color:var(--muted,#6a6a6a);cursor:pointer}.ds-nav button.on{color:var(--accent,#262626);font-weight:600;box-shadow:inset 0 2px 0 var(--accent,#262626)}.ds-nav button:focus-visible{outline:2px solid var(--accent,#262626)}"
+    },
+    {
+      "name": "Horário livre",
+      "kind": "custom",
+      "refersTo": "slot-livre",
+      "description": "Lacuna tracejada da agenda; destaca ao receber um cartão.",
+      "html": "<div class=\"ds-slot\">09:30 · livre</div><div class=\"ds-slot hot\">10:00 · livre</div>",
+      "css": ".ds-slot{font:13px system-ui,-apple-system,\"Segoe UI\",sans-serif;color:var(--muted,#6a6a6a);background:var(--free,#f6f6f6);border:1px dashed var(--border,#dedede);border-radius:14px;padding:8px 12px;margin-bottom:4px;max-width:360px}.ds-slot.hot{outline:2px solid var(--accent,#262626);background:var(--accent-soft,#ececec);color:var(--text,#161616)}"
+    }
+  ],
+  "narrative": {
+    "northStar": "A Prancheta de Turno",
+    "overview": "O TASK MANAGER é a prancheta que o técnico leva no turno: papel cinza-claro, folhas brancas presas com bordas finas, anotações em tinta escura, e cor só onde a cor significa alguma coisa. Ela não decora: cada tom saturado na tela é uma informação — a urgência de uma tarefa, o estado de um aparelho, um atraso. Todo o resto é monocromático, em grafite e carvão, para que esses sinais sejam lidos de relance, no corredor ou na mesa.\n\nA densidade é de ferramenta de trabalho: cartões empilhados com respiro curto (10px entre eles), textos em 13–15px, horários em destaque numérico. A mesma prancheta funciona no celular e no computador; no computador ela se abre em duas colunas (a agenda à esquerda, a tarefa em execução presa à direita), sem mudar de identidade. Existe um modo noturno completo, que inverte a prancheta (papel quase preto, tinta clara) mantendo as mesmas regras de cor.",
+    "keyCharacteristics": [
+      "Monocromático por padrão; cor reservada a urgência (alta/neutra/baixa) e status de aparelho.",
+      "Folhas brancas sobre papel cinza, separadas por fio de 1px — profundidade por camada, não por sombra.",
+      "Fonte do sistema, sem família de marca; hierarquia por peso e tamanho, com horários em numeral bold.",
+      "Cantos suaves que crescem com o tamanho do objeto (9px campo → 14px cartão → 18–20px aparelho/grupo).",
+      "Tema claro e escuro equivalentes, trocados por `data-theme` na raiz."
+    ],
+    "rules": [
+      {
+        "name": "The Cor-é-Dado Rule",
+        "body": "Cor saturada só aparece quando carrega informação: urgência, status de aparelho, perigo ou atraso. Se a cor não muda o que a pessoa faz, ela é cinza.",
+        "section": "colors"
+      },
+      {
+        "name": "The Faixa de Urgência Rule",
+        "body": "A urgência de uma tarefa é uma faixa de 4px na borda esquerda do cartão; só a tarefa *em andamento* ganha a borda inteira na cor da urgência (2px, com halo de 3px a 18%).",
+        "section": "colors"
+      },
+      {
+        "name": "The Hora-em-Negrito Rule",
+        "body": "Horários são o dado mais consultado: sempre em numeral bold, à frente do título, com o rótulo em caption acima. O resto do cartão é texto de 13–15px.",
+        "section": "typography"
+      },
+      {
+        "name": "The Nome-de-Aparelho Rule",
+        "body": "O nome do aparelho no cartão é o único texto em caixa alta pesada (800, 19px, espaçamento 0.5px) — funciona como a etiqueta física colada no equipamento.",
+        "section": "typography"
+      },
+      {
+        "name": "The Plano-até-Flutuar Rule",
+        "body": "Nada ganha sombra por enfeite. Se o elemento não está literalmente acima da página (flutuando, sendo arrastado, aparecendo por cima), ele é plano com fio de 1px.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** manter a tela monocromática e usar Urgência/Status só para sinalizar (The Cor-é-Dado Rule).",
+      "**Do** mostrar urgência pela faixa de 4px à esquerda; borda inteira só para a tarefa em andamento.",
+      "**Do** pôr horários em numeral bold no topo do cartão, antes do título.",
+      "**Do** usar fio de 1px Risco para separar folhas e seções; sombra só para o que flutua.",
+      "**Do** definir toda cor nova como token no `:root` e no `:root[data-theme=dark]` — os dois temas são obrigatórios.",
+      "**Do** escalar os cantos com o tamanho do objeto (9 → 14 → 18 → 20px; pílula para etiquetas).",
+      "**Do** (diretriz, a consolidar) deixar componentes discretos na tela grande e mais táteis no celular: alvos de toque com pelo menos 44px de altura em ações de campo (Iniciar, Concluir, Aceitar)."
+    ],
+    "donts": [
+      "**Don't** usar cor de destaque fora do Carvão; não há azul, roxo ou cor de marca.",
+      "**Don't** usar emojis em textos, frases e etiquetas — o emoji é só o ícone de uma categoria, e aparece apenas onde a categoria é o próprio assunto (cartão de aparelho, cabeçalho de grupo, lista de categorias).",
+      "**Don't** trocar a fonte do sistema por uma família web; a hierarquia vem de peso e tamanho.",
+      "**Don't** criar sombras decorativas em cartões ou botões (The Plano-até-Flutuar Rule).",
+      "**Don't** usar borda tracejada para nada além de horários livres."
+    ]
+  }
+}

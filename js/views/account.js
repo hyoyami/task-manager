@@ -68,11 +68,14 @@ function viewTimeOff() {
 // ---------- Login / cadastro ----------
 function viewLogin() {
   const signup = ui.authMode === 'up';
-  return '<h1 class="brand-login">TASK MANAGER</h1><div class="card"><b>' + (signup ? 'Criar conta' : 'Entrar') + '</b>'
+  return '<h1 class="brand-login">TASK MANAGER</h1>'
+    + when(pendingInvite(), '<div class="card invite-banner"><b>Você recebeu um convite!</b>'
+      + '<p class="muted mb-0">Crie sua conta (ou entre) e você já entra na empresa que te convidou.</p></div>')
+    + '<div class="card"><b>' + (signup ? 'Criar conta' : 'Entrar') + '</b>'
     + when(signup, '<label>Nome</label><input type="text" id="a_n" autocomplete="name">')
     + '<label>E-mail</label><input type="text" id="a_e" inputmode="email" autocomplete="email">'
     + '<label>Senha</label><input type="password" id="a_p" autocomplete="' + (signup ? 'new-password' : 'current-password') + '">'
-    + when(signup, '<label>Tipo de usuário</label><select id="a_r"><option value="sol">Solicitante</option><option value="func">Funcionário</option></select>')
+    + when(signup && !pendingInvite(), '<p class="muted">Depois do cadastro você escolhe a empresa (ou cadastra a sua).</p>')
     + '<label class="check check-lg"><input type="checkbox" id="a_k">Manter conectado</label>'
     + '<p class="muted error" id="a_m">' + esc(ui.authMsg) + '</p>'
     + '<div class="row between"><button class="primary" id="a_go">' + (signup ? 'Cadastrar' : 'Entrar') + '</button>'

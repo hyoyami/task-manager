@@ -1,7 +1,8 @@
 # TASK MANAGER — Agenda Inteligente de Tarefas
 
-Sistema web (mobile-first, funciona no PC) para distribuir tarefas entre **solicitantes (Usuário Y)**
-e **funcionários (Usuário X)**, com agenda automática, aparelhos (Workstation), logs e tutoriais.
+Sistema web (mobile-first, funciona no PC), **multiempresa**, para distribuir tarefas entre
+**solicitantes (Usuário Y)** e **funcionários (Usuário X)**, com um **administrador** por empresa,
+agenda automática, aparelhos (Workstation), logs e tutoriais.
 Idioma da interface e dos textos: **português do Brasil**. Responda ao usuário em português.
 
 ## Estrutura
@@ -22,12 +23,14 @@ js/core/                   utils.js (DOM, datas, formatação, cripto, imagens),
 js/domain/                 regras de negócio, sem HTML:
                            schedule.js (semana, findSlot, fitsAt, disponibilidade),
                            tasks.js (criar/aceitar/iniciar/concluir/reagendar),
-                           devices.js (aparelhos, categorias, problemas, tutoriais),
+                           company.js (empresa, membros, convites, funções, categorias, problemas),
+                           devices.js (aparelhos da empresa, tutoriais),
                            layout.js (ordem e grupos dos aparelhos),
                            auth.js (login, contas salvas, assinaturas onSnapshot)
 js/views/                  funções que devolvem HTML (string): components, layout,
                            agenda, tasks, team, devices, account, notifications,
-                           tutorials, modals
+                           tutorials, modals, onboarding (entrar/criar empresa),
+                           company (aba Empresa do administrador)
 js/app/                    render.js (abas e render()), actions.js (o que cada botão faz),
                            events.js (listeners globais), drag.js (arrastar tarefas),
                            device-drag.js (arrastar aparelhos/grupos), main.js (boot)
@@ -43,13 +46,18 @@ Modo local (dados no localStorage, chave `tm_db_v1`): abrir com `?backend=local`
 ou `localStorage.setItem('tm_backend','local')`.
 
 ## Banco (Supabase)
-- Cada coleção é uma tabela `{id text, data jsonb}` + colunas geradas (`emp`, `req`, `dev`, `owner`, `to_user`…)
-  usadas em índices e permissões. `update()` do app = função `doc_merge` (mescla jsonb).
+- Cada coleção é uma tabela `{id text, data jsonb}` + colunas geradas (`company`, `emp`, `req`, `dev`, `owner`,
+  `to_user`…) usadas em índices e permissões. `update()` do app = função `doc_merge` (mescla jsonb);
+  `db.call('join_with_invite', {code})` = entrar pelo link de convite (RPC validada no servidor).
 - Login: Supabase Auth (`profiles.id = auth.uid()`); a coleção `cred` só existe no modo local.
-- RLS (ver `supabase/schema.sql`): só usuários logados; perfil só o dono edita; tarefa o solicitante cria e só
-  solicitante/responsável alteram; aparelho o dono (ou quem tem tarefa vinculada) altera; notificação só o
-  destinatário lê; tutoriais só funcionários editam. Por isso reencaixar a agenda (`scheduleWaiting`) só roda
-  no cliente do próprio funcionário.
+- RLS (ver `supabase/schema.sql`): cada tabela só mostra linhas da empresa do usuário (`my_company()`, só
+  membros **ativos**). Tarefa: o solicitante cria e só solicitante/responsável alteram; aparelho: funcionários e
+  admin cadastram/alteram (solicitante só com tarefa vinculada), apagam quem cadastrou e o admin; notificação só o
+  destinatário lê; tutoriais: funcionários e admin editam; convites só o admin vê.
+  O gatilho `guard_profile` impede autoaprovação: a própria pessoa só pode pedir entrada (`pending`), cancelar/sair
+  ou virar admin da empresa que acabou de criar; o admin só aceita/muda papel (sol/func)/remove membros da empresa dele.
+  Reencaixar a agenda (`scheduleWaiting`) só roda no cliente do próprio funcionário.
+- No modo local não há RLS: `applyCompanyScope()` (domain/auth.js) filtra tudo por empresa no navegador.
 - Mudou o esquema? Edite `supabase/schema.sql` e execute-o de novo (é idempotente).
 - Visões para relatórios: `v_tasks`, `v_devices`.
 
@@ -59,18 +67,23 @@ Testes: `pip install playwright && playwright install chromium`, depois
 `~/.supabase-token` para limpar os usuários de teste).
 
 ## Modelo de dados (coleções do banco)
+- `companies/<id>` — `{name, admin(uid), created, cats:[{name,icon}] (criadas), hidden:[] (de fábrica excluídas),
+  probs:{categoria:[problema]}, cargos:{chave:{n, cats:[categoria]}}}` (funções e as categorias que cada uma vê).
+- `invites/<código>` — `{company, role:'sol'|'func', by, created}`. Link: `?convite=<código>` (entra direto, ativo).
 - `cred/<id>` — só no modo local: `{salt, hash, aid}` credenciais (PBKDF2 no navegador). `id` = hash do e-mail.
-- `profiles/<aid>` — `{name, role:'func'|'sol', email, ck, theme, seen, start,end,bs,be (jornada),
-  off:[{s,e,note}] (folgas pontuais), wk:[0..6] (folga semanal), ws:{cargo,cats,hidden,probs,setup,s1,layout}}`.
+- `profiles/<aid>` — `{name, role:'admin'|'func'|'sol', company, status:'pending'|'active', requestedAt, email, ck,
+  theme, seen, start,end,bs,be (jornada),
+  off:[{s,e,note}] (folgas pontuais), wk:[0..6] (folga semanal), ws:{cargo,setup,layout}}`.
   `ws.layout` = organização dos aparelhos: `[{type:'dev',id} | {type:'group',id,name,cat?,items:[devId]}]`
   (sem layout, cada categoria vira um grupo — ver `js/domain/layout.js`).
   Solicitante: `devCatOrder:[categoria]` = ordem das categorias na aba Aparelhos.
-  `ws.probs[categoria]` = lista de problemas de manutenção (senão usa `PRESETS`).
-  Perfis antigos podem ter `ws.areas` no lugar de `ws.cats` (tratado por `savedCategories()`).
+  Categorias e problemas ficavam no perfil (`ws.cats/hidden/probs/areas`); agora ficam na empresa.
 - `tasks/<id>` — `{title,desc,prio:'alta|neutra|baixa',dur,emp,req,status,start,initial,hist[],summary,
   dev,devName,devArea,devIp,devPrev,preset,tipo:'manutencao'}`. `devPrev` = status do aparelho antes da tarefa.
   Status: `aguardando` → `pendente`/`agendada` → `andamento` ⇄ `pausada` → `concluida` | `cancelada`.
-- `devices/<id>` — `{owner,name,ip,area,status:'Operacional|Inoperante|Em manutenção|Fora de uso',log[],created}`.
+- `devices/<id>` — `{company, owner (quem cadastrou), name, ip, area, status:'Operacional|Inoperante|Em manutenção|Fora de uso',
+  log[], created}`. Aparelho é **da empresa** (não tem responsável fixo).
+- `tasks`, `notifs`, `tutorials` também têm `company`.
 - `notifs/<id>` — `{to,txt,at}`.
 - `tutorials/<id>` — um documento por passo: `{cat,prob,order,img(dataURL),txt,by}`.
 - localStorage (fora do banco): `theme`, `accts` (contas salvas), `tm_backend`; modo local: `aid` (sessão);
@@ -79,6 +92,14 @@ Testes: `pip install playwright && playwright install chromium`, depois
 **Não renomeie campos nem chaves**: os dados já gravados nos navegadores dependem deles.
 
 ## Regras de negócio principais
+- Papéis: **admin** (criou a empresa; faz tudo de funcionário e de solicitante + aba Empresa), **func**, **sol**.
+- Conta nova → tela de entrada (`views/onboarding.js`): criar empresa (vira admin) ou pedir entrada escolhendo
+  papel (fica `pending` até o admin aceitar). Link de convite (`?convite=`) entra direto com o papel do link.
+- Aba Empresa (admin): pedidos de entrada (contador na aba; aceitar com papel e função), membros (trocar papel
+  sol/func e função, remover), links de convite, funções (quais categorias cada uma vê) e categorias/problemas.
+- Aparelhos são da empresa; funcionário vê/organiza só os das categorias da sua função (`canSeeCategory()`);
+  admin e solicitante veem todos. Manutenção: o solicitante escolhe quem atende entre os que cobrem a categoria
+  (`eligibleEmployees()`); se só um puder, já vem marcado.
 - Solicitante cria a tarefa **sem duração**; só o funcionário define a duração e agenda
   (arrastando o cartão para um horário livre, tocando no cartão e depois no horário, ou botão "Auto").
 - Agenda limitada à **semana corrente dentro do mês** (`currentWeek()`); `findSlot()` respeita jornada,
@@ -109,7 +130,8 @@ Testes: `pip install playwright && playwright install chromium`, depois
 - Na aba Aparelhos do **solicitante**, os aparelhos de todos aparecem agrupados por categoria; ele só pode
   arrastar as categorias para reordenar (sem mover aparelhos nem desfazer grupos). A ordem é pessoal:
   `profiles/<id>.devCatOrder = [categoria…]` (`requesterCategoryOrder()` / `moveCategory()` em `js/domain/layout.js`).
-- Solicitante só enxerga: agenda (outros horários aparecem como "Ocupado"), Equipe, Aparelhos (somente leitura).
+- Solicitante só enxerga: agenda (outros horários aparecem como "Ocupado"; o admin vê tudo), Equipe, Aparelhos
+  (somente leitura).
 - Ninguém é notificado das próprias ações (`notify()` ignora o próprio usuário).
 
 ## Convenções do código
@@ -117,14 +139,16 @@ Testes: `pip install playwright && playwright install chromium`, depois
 - `viewXxx()` devolvem o HTML de uma aba; componentes em `views/components.js`.
   Todo texto do usuário/banco passa por `esc()`; `when(cond, html)` e `each(lista, fn)` ajudam a montar HTML.
 - `render()` redesenha tudo a partir de `state`/`ui`; não redesenha enquanto há campo de texto em foco
-  em `<main>` (fora da Agenda) nem durante arrasto (`ui.drag`).
+  em `<main>` (fora da Agenda) nem durante arrasto (`ui.drag`). Sem empresa ativa, só mostra a tela de entrada.
+- Dados chegam crus em `raw` (domain/auth.js) e `applyCompanyScope()` monta `state`. Quando empresa/status do
+  usuário mudam, `startSession()` reabre todas as assinaturas (o que o banco deixa ver mudou).
 - Cliques passam por um listener global (`app/events.js`) que despacha para `ACTIONS_BY_ID[btn.id]`
   ou `ACTIONS_BY_DATA[chave do data-*]` (`app/actions.js`). Para um botão novo, adicione a entrada lá.
 - Modais: `openModal(html, {wide})` / `closeModal()`; o botão `#dn_no` fecha qualquer modal.
 - `say(msg)` mostra um toast; `notify(userId, txt)` cria notificação;
   `commitTask(id, patch, txt)` atualiza tarefa + histórico (e o estado local na hora).
-- Ids de elementos com prefixo por tela (`a_` login, `f_` nova tarefa, `dv_` aparelho, `p_`/`em_`/`pw_` conta,
-  `o_` folga, `w_`/`wc_` workstation, `tu_` tutorial) — os testes dependem deles.
+- Ids de elementos com prefixo por tela (`a_` login, `ob_` entrada na empresa, `adm_` aba Empresa, `f_` nova tarefa,
+  `dv_` aparelho, `p_`/`em_`/`pw_` conta, `o_` folga, `w_`/`wc_` workstation, `tu_` tutorial) — os testes dependem deles.
 - Tema: variáveis CSS em `:root` e `:root[data-theme=dark]`.
 
 ## Limitações conhecidas / próximos passos

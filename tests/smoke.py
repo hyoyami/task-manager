@@ -1,4 +1,4 @@
-"""Teste de fumaca: cadastro + login usando o banco local (local-runtime.js).
+"""Teste de fumaça: cadastro + criação de empresa usando o banco local (local-runtime.js).
 Requer:  pip install playwright && playwright install chromium
 Uso:     python tests/smoke.py
 """
@@ -18,11 +18,13 @@ with sync_playwright() as p:
     pg.fill("#a_n", "Ana")
     pg.fill("#a_e", "ana@teste.com")
     pg.fill("#a_p", "123456")
-    pg.select_option("#a_r", "func")
     pg.click("#a_go")
+    pg.wait_for_selector("#ob_cn")  # tela de entrada na empresa
+    pg.fill("#ob_cn", "Empresa Teste")
+    pg.click("#ob_create")
     pg.wait_for_selector("nav button")
     tabs = pg.eval_on_selector_all("nav button", "e => e.map(x => x.textContent)")
-    assert tabs == ["Agenda", "Tarefas", "Workstation"], tabs
+    assert tabs == ["Agenda", "Tarefas", "Equipe", "Workstation", "Empresa"], tabs
     assert not errors, errors
     print("OK:", tabs)
     b.close()

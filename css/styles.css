@@ -249,6 +249,8 @@ nav button.on { color: var(--accent); font-weight: 600; box-shadow: inset 0 2px 
   z-index: 8;
 }
 .fab.show { display: flex; }
+/* Espaço no fim da página para o último item não ficar atrás do botão "+". */
+body:has(.fab.show) main { padding-bottom: 88px; }
 
 /* ---------- Agenda ---------- */
 .slot { padding: 8px 12px; margin-bottom: 4px; background: var(--free); border-style: dashed; color: var(--muted); }

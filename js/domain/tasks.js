@@ -8,7 +8,7 @@
 async function notify(to, txt) {
   if (!to || to === state.uid) return;
   try {
-    await newDoc('notifs').set({ to, txt, at: Date.now() });
+    await newDoc('notifs').set({ company: state.me?.company || null, to, txt, at: Date.now() });
   } catch (err) {
     console.warn('Falha ao notificar', err);
   }
@@ -64,6 +64,7 @@ async function createTasks(form) {
     const now = Date.now();
     await ref.set({
       id: ref.id,
+      company: state.me.company,
       title: form.title,
       desc: form.desc,
       prio: form.prio,

@@ -17,17 +17,10 @@ async function patchMyProfile(patch) {
 // ---------- Workstation ----------
 async function saveCargo() {
   const cargo = $('#w_c').value;
-  if (!cargo) return say('Selecione o cargo.');
-  // Recomeça a configuração com as categorias sugeridas para o cargo.
-  await updateMyProfile({ ws: { cargo, cats: CARGOS[cargo].cats.map((c) => ({ ...c, id: c.name })), setup: false, s1: true } });
+  if (!cargo) return say('Selecione a função.');
+  await updateWorkstation({ cargo, setup: true });
   ui.wsStep = 'dev';
-}
-
-async function finishSetup() {
-  const skip = $('#w_skip')?.checked;
-  if (!Object.keys(state.myDevices).length && !skip) return say('Adicione um aparelho ou marque “Não adicionar aparelhos”.');
-  await updateWorkstation({ setup: true });
-  ui.wsStep = 'dev';
+  render();
 }
 
 async function submitDevice() {
@@ -46,13 +39,10 @@ async function submitCategory() {
   const file = $('#wc_f').files[0];
   if (!name) return say('Informe o nome da categoria.');
   if (!file || file.type !== 'image/png') return say('Envie o ícone em PNG.');
-  if (myCategories().some((c) => c.name.toLowerCase() === name.toLowerCase())) return say('Essa categoria já existe.');
-  const icon = await readIcon(file);
-  await updateWorkstation({
-    cats: [...myCategories(), { id: name, name, icon }],
-    hidden: (state.me.ws?.hidden || []).filter((h) => h !== name),
-  });
+  if (companyCategories().some((c) => c.name.toLowerCase() === name.toLowerCase())) return say('Essa categoria já existe.');
+  await addCategory(name, await readIcon(file));
   say('Categoria adicionada.');
+  render();
 }
 
 async function confirmCategoryDelete() {
@@ -66,6 +56,8 @@ async function confirmCategoryDelete() {
 }
 
 async function armDeviceDelete(id) {
+  const d = state.devices[id];
+  if (!d || !canDeleteDevice(d)) return say('Só quem cadastrou o aparelho ou o administrador pode excluí-lo.');
   if (ui.deviceDeleteArmed === id) {
     ui.deviceDeleteArmed = null;
     await deleteDevice(id);
@@ -79,7 +71,7 @@ async function armDeviceDelete(id) {
 async function addProblem() {
   const area = ui.modal.category;
   const name = $('#pb_n').value.trim();
-  const list = problemsOf(state.me.ws, area);
+  const list = problemsOf(area);
   if (!name) return say('Informe o problema.');
   if (list.some((x) => x.toLowerCase() === name.toLowerCase())) return say('Esse problema já existe.');
   await saveProblems(area, [...list, name]);
@@ -88,7 +80,7 @@ async function addProblem() {
 
 async function removeProblem(index) {
   const area = ui.modal.category;
-  await saveProblems(area, problemsOf(state.me.ws, area).filter((_, i) => i !== +index));
+  await saveProblems(area, problemsOf(area).filter((_, i) => i !== +index));
   openCategory(area);
 }
 
@@ -105,6 +97,97 @@ async function saveGroupName() {
   const id = ui.modal.group;
   closeModal();
   await renameGroup(id, name);
+  render();
+}
+
+// ---------- Empresa: entrar, criar, membros e convites ----------
+async function submitCreateCompany() {
+  const name = $('#ob_cn').value.trim();
+  if (!name) return say('Informe o nome da empresa.');
+  if (Object.values(state.companies).some((c) => String(c.name).toLowerCase() === name.toLowerCase())) {
+    return say('Já existe uma empresa com esse nome.');
+  }
+  await createCompany(name);
+  ui.tab = 'empresa';
+  say('Empresa criada! Cadastre os aparelhos e convide a equipe.');
+}
+
+async function submitJoinRequest() {
+  const companyId = $('#ob_company').value;
+  if (!companyId) return say('Selecione a empresa.');
+  await requestJoin(companyId, $('#ob_role').value);
+  say('Pedido enviado ao administrador.');
+}
+
+async function cancelJoinRequest() {
+  await leaveCompany();
+  say('Pedido cancelado.');
+}
+
+async function saveCompanyName() {
+  const name = $('#adm_name').value.trim();
+  if (!name) return say('Informe o nome da empresa.');
+  await renameCompany(name);
+  say('Nome da empresa salvo.');
+}
+
+async function acceptJoinRequest(id) {
+  const role = $('.jr-role[data-id="' + id + '"]')?.value || 'sol';
+  const cargo = $('.jr-cargo[data-id="' + id + '"]')?.value || '';
+  await acceptMember(id, role, cargo);
+  say('Membro aceito como ' + ROLE_LABEL[role] + '.');
+}
+
+async function rejectJoinRequest(id) {
+  if (!confirm('Recusar o pedido de entrada?')) return;
+  await rejectMember(id);
+  say('Pedido recusado.');
+}
+
+async function removeCompanyMember(id) {
+  if (!confirm('Remover ' + nameOf(id) + ' da empresa?')) return;
+  await removeMember(id);
+  say('Membro removido.');
+}
+
+async function generateInvite() {
+  const role = $('#adm_ir').value;
+  const code = await createInvite(role);
+  copyText(inviteLink(code), 'Link de convite (' + ROLE_LABEL[role] + ') criado e copiado.');
+}
+
+/** Copia para a área de transferência (com aviso; se o navegador bloquear, só avisa). */
+async function copyText(text, okMsg = 'Copiado.') {
+  try {
+    await navigator.clipboard.writeText(text);
+    say(okMsg);
+  } catch (_) {
+    say('Selecione o link e copie manualmente.');
+  }
+}
+
+async function removeInvite(code) {
+  if (!confirm('Excluir este link? Quem ainda não usou não conseguirá mais entrar por ele.')) return;
+  await deleteInvite(code);
+  say('Link excluído.');
+}
+
+async function submitCargo() {
+  const name = $('#adm_cg_n').value.trim();
+  if (!name) return say('Informe o nome da função.');
+  try {
+    await addCargo(name);
+  } catch (err) {
+    return say(err.message);
+  }
+  say('Função criada. Marque as categorias que ela vê.');
+  render();
+}
+
+async function removeCargo(key) {
+  const users = Object.values(state.profiles).filter((p) => p.ws?.cargo === key).length;
+  if (!confirm('Excluir a função?' + (users ? ' ' + users + ' membro(s) precisarão escolher outra.' : ''))) return;
+  await deleteCargo(key);
   render();
 }
 
@@ -258,13 +341,19 @@ const ACTIONS_BY_ID = {
   dn_no: () => closeModal(),
   // Workstation
   w_save: saveCargo,
-  w_done: finishSetup,
   dv_add: submitDevice,
   wc_add: submitCategory,
   cd_ok: confirmCategoryDelete,
   gr_ok: saveGroupName,
   pb_add: addProblem,
   tu_add: submitTutorialStep,
+  // Empresa
+  ob_create: submitCreateCompany,
+  ob_join: submitJoinRequest,
+  ob_cancel: cancelJoinRequest,
+  adm_save: saveCompanyName,
+  adm_inv: generateInvite,
+  adm_cg_add: submitCargo,
   // Conta e folgas
   p_go: saveProfile,
   wh_go: saveWorkHours,
@@ -312,6 +401,13 @@ const ACTIONS_BY_DATA = {
   tut: (v) => openTutorial(...splitTutorialKey(v)),
   tdel: removeTutorialStep,
   tmv: moveStep,
+  // Empresa (administrador)
+  accept: acceptJoinRequest,
+  reject: rejectJoinRequest,
+  mremove: removeCompanyMember,
+  invcopy: (v) => copyText(inviteLink(v), 'Link copiado.'),
+  invdel: removeInvite,
+  cgdel: removeCargo,
   // Folgas
   rm: removeTimeOff,
 };

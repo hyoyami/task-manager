@@ -48,8 +48,11 @@ function dayTimeline(emp, day) {
 
 /** Garante funcionário e dia válidos para a agenda. */
 function normalizeAgenda() {
-  if (isEmployee()) ui.agendaEmp = state.uid;
-  else if (!ui.agendaEmp || !state.profiles[ui.agendaEmp]) ui.agendaEmp = employees()[0]?.id || null;
+  // Funcionário: só a própria agenda. Administrador: a própria por padrão, pode ver a de qualquer um.
+  if (state.me.role === 'func') ui.agendaEmp = state.uid;
+  else if (!ui.agendaEmp || !executes(state.profiles[ui.agendaEmp])) {
+    ui.agendaEmp = isAdmin() ? state.uid : employees()[0]?.id || null;
+  }
   const week = currentWeek();
   if (ui.agendaDay < week.s || ui.agendaDay >= week.e) {
     ui.agendaDay = Math.min(Math.max(startOfDay(Date.now()), week.s), week.e - 1);
@@ -76,9 +79,9 @@ function viewAgenda() {
   const tasksOf = (statuses) => allTasks().filter((t) => t.emp === emp && statuses.includes(t.status));
   let h = '';
 
-  if (!isEmployee()) {
+  if (state.me.role !== 'func') {
     h += '<label>Funcionário</label><select id="selEmp">'
-      + each(employees(), (e) => '<option value="' + e.id + '"' + when(e.id === emp, ' selected') + '>' + esc(e.name) + '</option>')
+      + each(employees(), (e) => '<option value="' + e.id + '"' + when(e.id === emp, ' selected') + '>' + esc(e.name) + when(e.id === state.uid, ' (você)') + '</option>')
       + '</select>';
   }
   h += '<div class="row between"><button class="small" data-day="-1"' + when(day <= week.s, ' disabled') + '>‹</button>'
@@ -103,7 +106,8 @@ function viewAgenda() {
   h += each(dayTimeline(emp, day), (it) => {
     if (it.free) return freeSlots(it);
     if (it.label) return '<div class="card blocked">' + fmtTime(it.s) + '–' + fmtTime(it.e) + ' · ' + esc(it.label) + '</div>';
-    return taskCard(it.task, { canControl, masked: !canControl && it.task.req !== state.uid, draggable: true });
+    // Horários de outros solicitantes aparecem como "Ocupado" (o administrador vê tudo).
+    return taskCard(it.task, { canControl, masked: !canControl && !isAdmin() && it.task.req !== state.uid, draggable: true });
   }) || emptyCard('Dia sem expediente.');
 
   if (!canControl) {

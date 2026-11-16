@@ -6,6 +6,8 @@ Funciona no celular e no computador.
 
 ## Funcionalidades
 
+- **Empresas:** cada empresa tem seus dados isolados. Quem cria a empresa é o **administrador**: cadastra os
+  aparelhos, aceita os pedidos de entrada (ou convida por link), define papéis e funções.
 - **Solicitante:** cria tarefas (com ou sem aparelho vinculado), acompanha a agenda da equipe,
   vê a disponibilidade de cada funcionário e o status dos aparelhos.
 - **Funcionário:** define a duração e agenda as tarefas (arrastando o cartão para um horário livre

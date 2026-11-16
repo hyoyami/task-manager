@@ -1,8 +1,8 @@
 /* ==========================================================================
-   Organização dos aparelhos (ordem e grupos), definida pelo funcionário na
-   Workstation e exibida igual para o solicitante na aba Aparelhos.
+   Organização dos aparelhos (ordem e grupos) na Workstation — pessoal: cada um
+   organiza os aparelhos da empresa que enxerga (as categorias da sua função).
 
-   Guardada no perfil do responsável: profiles/<id>.ws.layout = [
+   Guardada no perfil: profiles/<id>.ws.layout = [
      { type: 'dev',   id },                               aparelho solto
      { type: 'group', id, name, cat?, items: [devId…] }   grupo (cat = criado da categoria)
    ]
@@ -11,20 +11,19 @@
    ========================================================================== */
 'use strict';
 
-const devicesOf = (owner) => Object.values(state.devices).filter((d) => d.owner === owner);
+/** Aparelhos que a pessoa organiza na Workstation (os da empresa nas categorias da função dela). */
+const devicesOf = (userId) => Object.values(state.devices).filter((d) => managesDevice(state.profiles[userId], d));
 const topKey = (item) => (item.type === 'group' ? 'g:' : 'd:') + item.id;
 const newGroupId = () => 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
-/** Categorias na ordem de exibição: as do cargo, as criadas e as que só aparecem em aparelhos. */
-function categoryOrder(ws, devices) {
-  const preset = (CARGOS[ws?.cargo] || CARGOS.ti).cats.map((c) => c.name);
-  return [...new Set([...preset, ...savedCategories(ws).map((c) => c.name), ...devices.map((d) => d.area)])];
+/** Categorias na ordem de exibição: as da empresa e as que só aparecem em aparelhos. */
+function categoryOrder(devices) {
+  return [...new Set([...companyCategories().map((c) => c.name), ...devices.map((d) => d.area)])];
 }
 
 function defaultLayout(owner) {
-  const ws = state.profiles[owner]?.ws;
   const devices = devicesOf(owner).sort((a, b) => b.created - a.created);
-  return categoryOrder(ws, devices)
+  return categoryOrder(devices)
     .map((cat) => ({ type: 'group', id: 'cat:' + cat, name: cat, cat, items: devices.filter((d) => d.area === cat).map((d) => d.id) }))
     .filter((g) => g.items.length);
 }

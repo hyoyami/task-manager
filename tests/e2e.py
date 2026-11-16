@@ -43,6 +43,7 @@ class Run:
         self.errors = []
         page.on("pageerror", lambda e: self.errors.append(str(e)))
         page.on("console", lambda m: m.type == "error" and self.errors.append(m.text))
+        page.on("dialog", lambda d: d.accept())  # confirm() de exclusões
 
     def wait(self, t=120):
         self.pg.wait_for_timeout(t)
@@ -67,7 +68,8 @@ class Run:
         self.click("#mnb")
         self.click(f'#mn_b [data-go="{go}"]')
 
-    def signup(self, name, email, role):
+    def signup(self, name, email):
+        """Cria a conta. Sem convite cai na tela de entrada na empresa; com convite, já entra."""
         pg = self.pg
         pg.wait_for_selector("#a_go")
         if not pg.query_selector("#a_n"):
@@ -75,11 +77,27 @@ class Run:
         pg.fill("#a_n", name)
         pg.fill("#a_e", email)
         pg.fill("#a_p", "123456")
-        pg.select_option("#a_r", role)
         pg.check("#a_k")
         self.click("#a_go")
-        pg.wait_for_selector("nav button")
-        self.wait()
+        pg.wait_for_selector("nav button, #ob_cn, #ob_cancel")
+        self.wait(250)
+
+    def create_company(self, name):
+        self.pg.fill("#ob_cn", name)
+        self.click("#ob_create")
+        self.pg.wait_for_selector("nav button")
+
+    def invite(self, role):
+        """Gera um link de convite na aba Empresa (administrador) e devolve a URL."""
+        self.tab("empresa")
+        self.pg.select_option("#adm_ir", role)
+        self.click("#adm_inv")
+        code = self.pg.evaluate(f"Object.entries(state.invites).find(([k, v]) => v.role === '{role}')[0]")
+        return self.pg.evaluate(f"inviteLink('{code}')")
+
+    def uid_of(self, email):
+        db = json.loads(self.pg.evaluate("localStorage.getItem('tm_db_v1')"))
+        return next(k.split("/", 1)[1] for k, v in db.items() if k.startswith("profiles/") and v.get("email") == email)
 
     def login(self, email, password="123456"):
         pg = self.pg
@@ -130,15 +148,36 @@ def main():
         pg.goto(INDEX)
         r.shot("login")
 
-        # ---------- Funcionária Ana: cadastro e Workstation ----------
-        r.signup("Ana", "ana@teste.com", "func")
+        # ---------- Administrador Carlos: cria a empresa, problemas e convites ----------
+        r.signup("Carlos", "carlos@teste.com")
+        r.shot("onboarding")
+        r.click("#ob_create")
+        assert "nome da empresa" in pg.inner_text("#toast")
+        r.create_company("Empresa Teste")
+        assert r.tabs() == ["Agenda", "Tarefas", "Equipe", "Workstation", "Empresa"], r.tabs()
+        r.tab("empresa")
+        r.click('[data-cat="Impressora"]')
+        pg.fill("#pb_n", "Sem tinta")
+        r.click("#pb_add")
+        r.shot("cat-modal", "#mdb")
+        r.click("#dn_no")
+        func_link = r.invite("func")
+        sol_link = r.invite("sol")
+        r.shot("empresa")
+        r.logout()
+
+        # ---------- Funcionária Ana: entra pelo convite e monta a Workstation ----------
+        pg.goto(func_link)
+        assert "convite" in pg.inner_text("#app")
+        r.signup("Ana", "ana@teste.com")
         assert r.tabs() == ["Agenda", "Tarefas", "Workstation"], r.tabs()
+        ana_id = pg.evaluate("state.uid")
         r.shot("ana-agenda-vazia")
         r.tab("workstation")
-        r.shot("ws-setup1")
+        r.shot("ws-funcao")
         pg.select_option("#w_c", "ti")
         r.click("#w_save")
-        r.shot("ws-setup2")
+        r.click('[data-wst="new"]')
         pg.select_option("#dv_a", "Impressora")
         pg.fill("#dv_n", "HP Recepção")
         pg.fill("#dv_i", "192.168.0.300")
@@ -146,7 +185,6 @@ def main():
         assert "IP v" in pg.inner_text("#toast")
         pg.fill("#dv_i", "192.168.0.10")
         r.click("#dv_add")
-        r.click("#w_done")
         r.shot("ws-lista")
         dev_id = pg.get_attribute("[data-dev]", "data-dev")
         r.click(f'[data-dev="{dev_id}"]')
@@ -157,14 +195,8 @@ def main():
         r.shot("dev-modal", "#mdb")
         r.click("#dn_no")
 
-        # Configuração da Workstation: problemas de categoria
         r.menu("wcfg")
         r.shot("wcfg")
-        r.click('[data-cat="Impressora"]')
-        pg.fill("#pb_n", "Sem tinta")
-        r.click("#pb_add")
-        r.shot("cat-modal", "#mdb")
-        r.click("#dn_no")
 
         # Folgas: sábado e domingo + folga pontual
         r.menu("folgas")
@@ -204,8 +236,9 @@ def main():
         r.click('[data-th="light"]')
         r.logout()
 
-        # ---------- Solicitante Bruno ----------
-        r.signup("Bruno", "bruno@teste.com", "sol")
+        # ---------- Solicitante Bruno (convite) ----------
+        pg.goto(sol_link)
+        r.signup("Bruno", "bruno@teste.com")
         assert r.tabs() == ["Agenda", "Tarefas", "Equipe", "Aparelhos"], r.tabs()
         r.shot("bruno-agenda")
         r.tab("equipe")
@@ -225,7 +258,7 @@ def main():
         assert "Informe" in pg.inner_text("#f_m")
         pg.fill("#f_t", "Instalar Office")
         pg.fill("#f_d", "Notebook do financeiro")
-        pg.check(".f_e")
+        pg.check(f'.f_e[value="{ana_id}"]')
         pg.select_option("#f_p", "alta")
         r.click("#f_go")
         # Tarefa de manutenção (aparelho + problema pré-definido)
@@ -235,6 +268,9 @@ def main():
         r.shot("nova-com-aparelho", "#mdb")
         r.click('[data-pk="Limpeza"]')
         r.click("#f_go")
+        assert "ao menos um funcionário" in pg.inner_text("#f_m")  # dois podem atender: precisa escolher
+        pg.check(f'.f_e[value="{ana_id}"]')
+        r.click("#f_go")
         # O aparelho vinculado fica inoperante até o funcionário iniciar (visível na aba Aparelhos).
         assert device_status(r, dev_id) == "Inoperante"
         r.tab("aparelhos")
@@ -243,7 +279,7 @@ def main():
         r.click("#nfab")
         pg.fill("#f_t", "Trocar mouse")
         pg.fill("#f_d", "Mouse quebrado")
-        pg.check(".f_e")
+        pg.check(f'.f_e[value="{ana_id}"]')
         pg.select_option("#f_p", "baixa")
         r.click("#f_go")
         r.tab("tarefas")
@@ -358,6 +394,7 @@ def main():
         extra_flows(r)
         assert not r.errors, r.errors
         n = priority_flow(b, shots_dir)
+        n += company_flow(b, shots_dir)
         print(f"OK: {len(r.shots) + n} telas verificadas, sem erros de JavaScript.")
         b.close()
 
@@ -376,14 +413,21 @@ def priority_flow(browser, shots_dir):
     if r.shots_dir:
         r.shots_dir.mkdir(exist_ok=True)
     pg.goto(INDEX)
-    r.signup("Carla", "carla@teste.com", "func")
+    r.signup("Gestor", "gestor@teste.com")
+    r.create_company("Oficina Prioridade")
+    func_link, sol_link = r.invite("func"), r.invite("sol")
     r.logout()
-    r.signup("Davi", "davi@teste.com", "sol")
+    pg.goto(func_link)
+    r.signup("Carla", "carla@teste.com")
+    carla_id = pg.evaluate("state.uid")
+    r.logout()
+    pg.goto(sol_link)
+    r.signup("Davi", "davi@teste.com")
     for title, prio in [("Em curso", "neutra"), ("Baixa 1", "baixa"), ("Neutra 1", "neutra"), ("Urgente", "alta")]:
         r.click("#nfab")
         pg.fill("#f_t", title)
         pg.fill("#f_d", "Teste de prioridade")
-        pg.check(".f_e")
+        pg.check(f'.f_e[value="{carla_id}"]')
         pg.select_option("#f_p", prio)
         r.click("#f_go")
     r.logout()
@@ -456,6 +500,92 @@ def priority_flow(browser, shots_dir):
     return len(r.shots)
 
 
+def company_flow(browser, shots_dir):
+    """Empresa: pedido de entrada e aprovação, funções x categorias, papéis, remoção e isolamento."""
+    ctx = browser.new_context(viewport={"width": 420, "height": 1400}, timezone_id="America/Sao_Paulo", locale="pt-BR")
+    pg = ctx.new_page()
+    pg.clock.set_fixed_time(NOW)
+    r = Run(pg, shots_dir / "empresa" if shots_dir else None)
+    if r.shots_dir:
+        r.shots_dir.mkdir(exist_ok=True)
+    pg.goto(INDEX)
+    profile = lambda email: next(v for k, v in json.loads(pg.evaluate("localStorage.getItem('tm_db_v1')")).items()
+                                 if k.startswith("profiles/") and v.get("email") == email)
+
+    # Administrador cria a empresa, cadastra aparelhos e uma função que só vê computadores.
+    r.signup("Gil", "gil@teste.com")
+    r.create_company("Alfa")
+    alfa = pg.evaluate("state.company.id")
+    for area, name, ip in [("Impressora", "Impressora Alfa", "10.0.0.1"), ("Computador", "PC Alfa", "10.0.0.2")]:
+        r.tab("workstation")
+        r.click('[data-wst="new"]')
+        pg.select_option("#dv_a", area)
+        pg.fill("#dv_n", name)
+        pg.fill("#dv_i", ip)
+        r.click("#dv_add")
+    r.tab("empresa")
+    pg.fill("#adm_cg_n", "Desenvolvedor")
+    r.click("#adm_cg_add")
+    pg.check('.cg-cat[data-cargo="desenvolvedor"][data-cgcat="Computador"]')
+    r.wait(200)
+    cargos = pg.evaluate("state.company.cargos")
+    assert cargos["desenvolvedor"]["cats"] == ["Computador"], cargos
+    r.logout()
+
+    # Hugo pede para entrar como solicitante e fica aguardando.
+    r.signup("Hugo", "hugo@teste.com")
+    pg.select_option("#ob_company", alfa)
+    pg.select_option("#ob_role", "sol")
+    r.click("#ob_join")
+    pg.wait_for_selector("#ob_cancel")
+    assert pg.locator("nav button").count() == 0 and "Alfa" in pg.inner_text("#app")
+    assert pg.evaluate("Object.keys(state.devices).length") == 0  # pendente não vê nada da empresa
+    r.shot("aguardando-aprovacao")
+    r.logout()
+
+    # O administrador vê o pedido (com contador) e aceita como funcionário/Desenvolvedor.
+    r.login("gil@teste.com")
+    assert "1" in pg.inner_text('nav [data-tab="empresa"]')
+    r.tab("empresa")
+    hugo = pg.get_attribute("[data-accept]", "data-accept")
+    pg.select_option(f'.jr-role[data-id="{hugo}"]', "func")
+    pg.select_option(f'.jr-cargo[data-id="{hugo}"]', "desenvolvedor")
+    r.click(f'[data-accept="{hugo}"]')
+    r.shot("membro-aceito")
+    h = profile("hugo@teste.com")
+    assert (h["status"], h["role"], h["ws"]["cargo"]) == ("active", "func", "desenvolvedor"), h
+    r.logout()
+
+    # Hugo (Desenvolvedor) só enxerga os computadores.
+    r.login("hugo@teste.com")
+    assert r.tabs() == ["Agenda", "Tarefas", "Workstation"], r.tabs()
+    r.tab("workstation")
+    names = pg.eval_on_selector_all(".device-card .device-name", "e => e.map(x => x.textContent)")
+    assert names == ["PC Alfa"], names
+    r.logout()
+
+    # O administrador muda o papel de Hugo para solicitante e depois o remove da empresa.
+    r.login("gil@teste.com")
+    r.tab("empresa")
+    pg.select_option(f'.m-role[data-id="{hugo}"]', "sol")
+    r.wait(200)
+    assert profile("hugo@teste.com")["role"] == "sol"
+    r.click(f'[data-mremove="{hugo}"]')
+    assert profile("hugo@teste.com")["company"] is None
+    r.logout()
+
+    # Outra empresa não enxerga nada da Alfa.
+    r.signup("Isa", "isa@teste.com")
+    r.create_company("Beta")
+    seen = pg.evaluate("({ dev: Object.keys(state.devices).length, people: Object.keys(state.profiles).length })")
+    assert seen == {"dev": 0, "people": 1}, seen
+    r.tab("equipe")
+    assert "Gil" not in pg.inner_text("#app")
+    assert not r.errors, r.errors
+    ctx.close()
+    return len(r.shots)
+
+
 def device_status(r, did):
     return r.pg.evaluate(f"JSON.parse(localStorage.getItem('tm_db_v1'))['devices/{did}'].status")
 
@@ -490,11 +620,13 @@ def drag(r, src, dst, fy=0.5, fx=0.5):
 def extra_flows(r):
     """Fluxos complementares: arrasto com mouse, conta, categorias, troca de conta, temas/desktop."""
     pg = r.pg
+    ana_id = r.uid_of("ana@teste.com")
+    bruno_id = r.uid_of("bruno@teste.com")
     # Bruno pede mais uma tarefa para Ana.
     r.click("#nfab")
     pg.fill("#f_t", "Configurar VPN")
     pg.fill("#f_d", "Acesso remoto")
-    pg.check(".f_e")
+    pg.check(f'.f_e[value="{ana_id}"]')
     r.click("#f_go")
     r.logout()
 
@@ -570,8 +702,10 @@ def extra_flows(r):
     assert "incorretos" in pg.inner_text("#a_m")
     r.login("ana2@teste.com", "abcdef")
 
-    # Categoria com ícone PNG: cria e exclui.
-    r.menu("wcfg")
+    # Categoria com ícone PNG: cria e exclui (administrador, aba Empresa).
+    r.logout()
+    r.login("carlos@teste.com")
+    r.tab("empresa")
     pg.fill("#wc_n", "Roteador")
     pg.set_input_files("#wc_f", files=[{"name": "r.png", "mimeType": "image/png", "buffer": PNG_1PX}])
     r.click("#wc_add")
@@ -580,6 +714,8 @@ def extra_flows(r):
     r.click('[data-cdel="Roteador"]')
     r.click("#cd_ok")
     assert pg.locator('[data-cat="Roteador"]').count() == 0
+    r.logout()
+    r.login("ana2@teste.com", "abcdef")
 
     # Novo aparelho pela Workstation.
     r.tab("workstation")
@@ -648,7 +784,7 @@ def extra_flows(r):
     # Trocar de conta pelo menu (sem senha).
     r.click("#mnb")
     r.click('[data-sw="1"]')
-    r.click("#mn_b [data-acc]")
+    r.click(f'#mn_b [data-acc="{bruno_id}"]')
     pg.wait_for_selector('nav [data-tab="equipe"]')
     assert r.tabs() == ["Agenda", "Tarefas", "Equipe", "Aparelhos"], r.tabs()
     # Aba Aparelhos do solicitante: agrupada por categoria; só as categorias se movem.
@@ -675,6 +811,8 @@ def extra_flows(r):
     assert device_status(r, pc) == "Operacional"
     r.click("#nfab")
     pg.select_option("#f_v", pc)
+    r.wait()
+    pg.check(f'.f_e[value="{ana_id}"]')
     pg.fill("#f_t", "Teclado falhando")
     pg.fill("#f_d", "Teclas não respondem")
     r.click("#f_go")

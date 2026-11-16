@@ -1,8 +1,10 @@
-"""Teste de integração com o Supabase de verdade (banco, login, tempo real e permissões).
+"""Teste de integração com o Supabase de verdade (banco, login, empresas, tempo real e permissões).
 
-Abre dois navegadores ao mesmo tempo — funcionário e solicitante — e confere que as
-mudanças de um aparecem no outro sem recarregar a página, e que as regras de segurança
-(RLS) bloqueiam o que devem bloquear. No final apaga os usuários e dados criados.
+Abre quatro navegadores ao mesmo tempo — administrador, funcionário, solicitante e alguém de
+outra empresa — e confere: criação da empresa, convite por link, pedido de entrada aprovado em
+tempo real, mudanças de um aparecendo no outro sem recarregar, isolamento entre empresas e as
+regras de segurança (RLS + gatilho do perfil) bloqueando tentativas de burlar.
+No final apaga os usuários e dados criados.
 
 Requer:
   - pip install playwright && playwright install chromium
@@ -24,8 +26,10 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 PROJECT_REF = "fguabpdfmqjcmvrpdicg"
 STAMP = str(int(time.time()))
 EMAIL_PREFIX = "tm-e2e-"
+ADMIN_EMAIL = f"{EMAIL_PREFIX}{STAMP}-admin@example.com"
 FUNC_EMAIL = f"{EMAIL_PREFIX}{STAMP}-func@example.com"
 SOL_EMAIL = f"{EMAIL_PREFIX}{STAMP}-sol@example.com"
+OUT_EMAIL = f"{EMAIL_PREFIX}{STAMP}-fora@example.com"
 PASSWORD = "senha-teste-123"
 
 
@@ -61,7 +65,9 @@ def cleanup():
       delete from public.tutorials where data->>'by' in {ids};
       delete from public.tasks     where req in {ids} or emp in {ids};
       delete from public.devices   where owner in {ids};
+      delete from public.invites   where data->>'by' in {ids};
       delete from public.profiles  where id in {ids};
+      delete from public.companies where admin in {ids};
       delete from auth.users where email like '{EMAIL_PREFIX}%@example.com';
     """)
 
@@ -83,7 +89,7 @@ class User:
         self.pg.click(sel)
         self.wait()
 
-    def signup(self, name, email, role):
+    def signup(self, name, email):
         pg = self.pg
         pg.wait_for_selector("#a_go", timeout=20000)
         if not pg.query_selector("#a_n"):
@@ -91,13 +97,13 @@ class User:
         pg.fill("#a_n", name)
         pg.fill("#a_e", email)
         pg.fill("#a_p", PASSWORD)
-        pg.select_option("#a_r", role)
         pg.check("#a_k")
         self.click("#a_go")
         try:
-            pg.wait_for_selector("nav button", timeout=20000)
+            pg.wait_for_selector("nav button, #ob_cn", timeout=20000)
         except Exception:
             raise AssertionError(f"[{self.label}] cadastro falhou: {pg.inner_text('#a_m')}")
+        self.wait(500)
 
     def db_call(self, js):
         """Executa uma operação do banco pela API do app, devolvendo 'ok' ou a mensagem de erro."""
@@ -113,36 +119,73 @@ def main():
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch()
+            admin = User(browser, url, "administrador")
             func = User(browser, url, "funcionário")
             sol = User(browser, url, "solicitante")
+            out = User(browser, url, "outra empresa")
+            for u in (admin, func, sol, out):
+                u.pg.on("dialog", lambda d: d.accept())
 
-            # Cadastro real no Supabase Auth.
-            func.signup("Fábio Teste", FUNC_EMAIL, "func")
-            sol.signup("Sara Teste", SOL_EMAIL, "sol")
+            # Administrador cria a empresa e cadastra um aparelho.
+            admin.signup("Adm Teste", ADMIN_EMAIL)
+            admin.pg.fill("#ob_cn", "Empresa E2E " + STAMP)
+            admin.click("#ob_create")
+            admin.pg.wait_for_selector('nav [data-tab="empresa"]', timeout=15000)
+            company = admin.pg.evaluate("state.company.id")
+            admin.click('nav [data-tab="workstation"]')
+            admin.click('[data-wst="new"]')
+            admin.pg.select_option("#dv_a", "Impressora")
+            admin.pg.fill("#dv_n", "Impressora Teste")
+            admin.pg.fill("#dv_i", "10.1.1.1")
+            admin.click("#dv_add")
+            admin.pg.wait_for_selector(".device-card", timeout=15000)
+            dev_id = admin.pg.get_attribute(".device-card", "data-did")
+
+            # Link de convite de funcionário → o funcionário entra direto.
+            admin.click('nav [data-tab="empresa"]')
+            admin.pg.select_option("#adm_ir", "func")
+            admin.click("#adm_inv")
+            admin.pg.wait_for_function("Object.keys(state.invites).length === 1", timeout=15000)
+            link = admin.pg.evaluate("inviteLink(Object.keys(state.invites)[0])")
+            func.pg.goto(link)
+            func.signup("Fábio Teste", FUNC_EMAIL)
+            func.pg.wait_for_selector('nav [data-tab="workstation"]', timeout=20000)
             func_id = func.pg.evaluate("state.uid")
-            sol_id = sol.pg.evaluate("state.uid")
-            assert len(func_id) == 36 and len(sol_id) == 36, (func_id, sol_id)  # uuid do Supabase Auth
-
-            # Funcionário configura a Workstation e cadastra um aparelho.
+            assert len(func_id) == 36, func_id  # uuid do Supabase Auth
             func.click('nav [data-tab="workstation"]')
             func.pg.select_option("#w_c", "ti")
             func.click("#w_save")
-            func.pg.wait_for_selector("#dv_n")
-            func.pg.fill("#dv_n", "Impressora Teste")
-            func.pg.fill("#dv_i", "10.1.1.1")
-            func.click("#dv_add")
-            func.click("#w_done")
-            func.pg.wait_for_selector(".device-card")
-            dev_id = func.pg.get_attribute(".device-card", "data-did")
+            func.pg.wait_for_selector(f'.device-card[data-did="{dev_id}"]', timeout=15000)
 
-            # Tempo real: o solicitante vê o funcionário e o aparelho sem recarregar.
+            # Solicitante pede entrada pela lista; não consegue se autoaprovar.
+            sol.signup("Sara Teste", SOL_EMAIL)
+            sol.pg.wait_for_selector(f'#ob_company option[value="{company}"]', state="attached", timeout=15000)
+            sol.pg.select_option("#ob_company", company)
+            sol.pg.select_option("#ob_role", "sol")
+            sol.click("#ob_join")
+            sol.pg.wait_for_selector("#ob_cancel", timeout=15000)
+            sol_id = sol.pg.evaluate("state.uid")
+            r = sol.db_call(f"await db.doc('profiles/{sol_id}').update({{ status: 'active' }})")
+            assert r.startswith("erro"), "autoaprovação deveria ser bloqueada: " + r
+            r = sol.db_call(f"await db.doc('profiles/{sol_id}').update({{ role: 'admin', status: 'active' }})")
+            assert r.startswith("erro"), r
+            assert sol.pg.evaluate("Object.keys(state.devices).length") == 0  # pendente não vê nada
+
+            # O pedido chega ao administrador em tempo real; ele aceita e a tela do solicitante abre sozinha.
+            admin.pg.wait_for_function("state.joinRequests.length === 1", timeout=15000)
+            admin.click('nav [data-tab="empresa"]')
+            admin.click(f'[data-accept="{sol_id}"]')
+            sol.pg.wait_for_selector('nav [data-tab="aparelhos"]', timeout=20000)
+
+            # Tempo real: o solicitante vê o aparelho da empresa.
             sol.click('nav [data-tab="aparelhos"]')
             sol.pg.wait_for_selector(f'.device-card[data-did="{dev_id}"]', timeout=15000)
 
-            # Solicitante abre uma manutenção → aparelho fica Inoperante (RLS permite por ter tarefa vinculada).
+            # Solicitante abre uma manutenção para o funcionário → aparelho fica Inoperante.
             sol.click("#nfab")
             sol.pg.select_option("#f_v", dev_id)
             sol.wait()
+            sol.pg.check(f'.f_e[value="{func_id}"]')
             sol.click('[data-pk="Limpeza"]')
             sol.click("#f_go")
             sol.pg.wait_for_selector(f'.device-card[data-did="{dev_id}"]:has-text("inoperante")', timeout=15000)
@@ -157,40 +200,50 @@ def main():
             func.wait(800)
             status = func.pg.evaluate(f"state.tasks['{tid}'].status")
             assert status in ("agendada", "pendente"), status
-
-            # Notificação chega ao solicitante em tempo real.
             sol.pg.wait_for_function("state.notifs.some(n => /aceita/.test(n.txt))", timeout=15000)
 
-            # Segurança (RLS): o solicitante não altera o perfil do funcionário, não lê notificações
-            # alheias e não apaga o aparelho; o funcionário não cria tarefa em nome de outro.
+            # Segurança dentro da empresa.
             r = sol.db_call(f"await db.doc('profiles/{func_id}').update({{ name: 'Hacker' }})")
             assert r.startswith("erro"), r
+            r = func.db_call(f"await db.doc('profiles/{func_id}').update({{ role: 'admin' }})")
+            assert r.startswith("erro"), "funcionário não pode virar administrador: " + r
             sol.db_call(f"await db.doc('devices/{dev_id}').delete()")  # RLS: apaga 0 linhas
             func.wait(2000)
             assert func.pg.evaluate(f"!!state.devices['{dev_id}']"), "aparelho não deveria ser apagado"
-            r = func.db_call(f"await db.collection('tasks').doc().set({{ title: 'x', req: '{sol_id}', emp: '{func_id}' }})")
+            r = func.db_call(f"await db.collection('tasks').doc().set({{ company: '{company}', title: 'x', req: '{sol_id}', emp: '{func_id}' }})")
             assert r.startswith("erro"), r
-            leaked = sol.pg.evaluate(f"""async () => {{
+
+            # Outra empresa não enxerga nada desta (nem forçando pela API).
+            out.signup("Otto Fora", OUT_EMAIL)
+            out.pg.fill("#ob_cn", "Outra E2E " + STAMP)
+            out.click("#ob_create")
+            out.pg.wait_for_selector('nav [data-tab="empresa"]', timeout=15000)
+            leaked = out.pg.evaluate("""async () => {
               const db = await claude.use('db');
-              return await new Promise((ok) => {{
-                const off = db.collection('notifs').onSnapshot((s) => {{ off(); ok(s.docs.filter((d) => d.data().to !== '{sol_id}').length); }});
-              }});
-            }}""")
-            assert leaked == 0, leaked
+              const count = (name) => new Promise((ok) => {
+                const off = db.collection(name).onSnapshot((s) => { off(); ok(s.docs.length); });
+              });
+              return { tasks: await count('tasks'), devices: await count('devices'), invites: await count('invites') };
+            }""")
+            assert leaked == {"tasks": 0, "devices": 0, "invites": 0}, leaked
+            r = out.db_call(f"await db.doc('devices/{dev_id}').update({{ status: 'Fora de uso' }})")
+            assert r.startswith("erro"), r
+            r = out.db_call(f"await db.call('join_with_invite', {{ code: 'codigo-inexistente' }})")
+            assert r.startswith("erro"), r
 
             # Persistência: recarregar mantém a sessão e os dados vêm do banco.
             func.pg.reload()
             func.pg.wait_for_selector("nav button", timeout=20000)
-            assert func.pg.evaluate(f"!!state.tasks['{tid}']")
+            func.pg.wait_for_function(f"!!state.tasks['{tid}']", timeout=15000)
 
             # Sair encerra a sessão.
             func.click("#mnb")
             func.click("#a_out")
             func.pg.wait_for_selector("#a_go", timeout=10000)
 
-            errors = func.errors + sol.errors
+            errors = admin.errors + func.errors + sol.errors + out.errors
             assert not errors, errors
-            print("OK: Supabase — cadastro, tempo real entre dois navegadores, RLS e persistência.")
+            print("OK: Supabase — empresa, convite, aprovação, tempo real, isolamento, RLS e persistência.")
             browser.close()
     finally:
         srv.shutdown()

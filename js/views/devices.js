@@ -8,7 +8,7 @@ const byText = (key) => (a, b) => String(key(a)).localeCompare(String(key(b)));
 
 // ---------- Organização (grupos e ordem) ----------
 function groupHtml(owner, group, ids, editable) {
-  const icon = when(group.cat, categoryIcon(categoryByName(owner, group.cat)));
+  const icon = when(group.cat, categoryIcon(categoryByName(group.cat)));
   return '<section class="dev-group" data-gid="' + esc(group.id) + '">'
     + '<div class="row between nowrap dev-group-head">'
     + '<h3>' + when(editable, '<span class="group-handle" title="Arrastar grupo" aria-hidden="true">⠿</span>')
@@ -49,7 +49,7 @@ function deviceBoard(owner, { editable = false, filter = null } = {}) {
 function requesterCategoryGroup(cat, devices) {
   return '<section class="dev-group" data-gid="' + esc(cat) + '">'
     + '<div class="row between nowrap dev-group-head"><h3><span class="group-handle" title="Arrastar categoria" aria-hidden="true">⠿</span>'
-    + categoryIcon(categoryByName(devices[0].owner, cat)) + esc(cat) + ' <span class="muted">(' + devices.length + ')</span></h3></div>'
+    + categoryIcon(categoryByName(cat)) + esc(cat) + ' <span class="muted">(' + devices.length + ')</span></h3></div>'
     + '<div class="device-grid">' + each(devices, (d) => deviceCard(d, false)) + '</div></section>';
 }
 
@@ -82,28 +82,15 @@ function deviceForm() {
     + '<p><button class="primary" id="dv_add">Cadastrar aparelho</button></p></div>';
 }
 
-/** Etapa 1 da configuração: escolher o cargo. */
-function setupStep1() {
-  return '<p class="muted">Selecione o seu cargo. Os aparelhos que você cuida serão sugeridos automaticamente.</p>'
-    + '<div class="card"><label>Cargo</label><select id="w_c"><option value="">Selecione…</option>'
-    + each(Object.entries(CARGOS), ([k, v]) => '<option value="' + k + '"' + when(state.me.ws?.cargo === k, ' selected') + '>' + esc(v.n) + '</option>')
+/** Funcionário sem função definida: escolhe a função (define quais categorias de aparelho vê). */
+function chooseCargo() {
+  return '<p class="muted">Selecione a sua função. Ela define quais categorias de aparelho aparecem para você.</p>'
+    + '<div class="card"><label for="w_c">Função</label><select id="w_c"><option value="">Selecione…</option>'
+    + each(Object.entries(companyCargos()), ([k, v]) => '<option value="' + esc(k) + '"' + when(state.me.ws?.cargo === k, ' selected') + '>' + esc(v.n) + '</option>')
     + '</select><p><button class="primary" id="w_save">Continuar</button></p></div>';
 }
 
-/** Etapa 2 da configuração: cadastrar os aparelhos. */
-function setupStep2() {
-  const devices = Object.values(state.myDevices).sort((a, b) => a.created - b.created);
-  return '<p class="muted">Etapa 2 — cadastre os aparelhos de que você cuida. Informe nome e IP de cada um.</p>'
-    + '<p><button class="small" data-wst="back1">← Voltar ao cargo</button></p>'
-    + when(devices.length, '<h2>Aparelhos cadastrados (' + devices.length + ')</h2>'
-      + each(devices, (d) => '<div class="card"><b>' + esc(d.name) + '</b> ' + tag(esc(d.area)) + '<div class="muted">IP ' + esc(d.ip || '—') + '</div></div>'))
-    + deviceForm()
-    + '<div class="card">'
-    + when(!devices.length, '<label class="check check-lg first"><input type="checkbox" id="w_skip">Não adicionar aparelhos agora</label>')
-    + '<p><button class="primary" id="w_done">Concluir cadastro</button></p></div>';
-}
-
-/** Aparelhos do funcionário, na organização dele (arrastável). */
+/** Aparelhos da empresa nas categorias da função, na organização pessoal (arrastável). */
 function myDeviceList() {
   const add = '<p><button class="small primary" data-wst="new">＋ Adicionar aparelho</button></p>';
   if (!Object.keys(state.myDevices).length) return add + emptyCard('Nenhum aparelho cadastrado ainda.');
@@ -115,8 +102,8 @@ function myDeviceList() {
 
 function viewWorkstation() {
   const title = '<h1>Workstation</h1>';
-  const ws = state.me.ws || {};
-  if (!ws.setup) return title + (ws.s1 && ui.wsStep !== 'back1' ? setupStep2() : setupStep1());
+  const cargo = state.me.ws?.cargo;
+  if (state.me.role === 'func' && (!cargo || !companyCargos()[cargo])) return title + chooseCargo();
   if (ui.wsStep === 'new') {
     return '<h1>Novo aparelho</h1><p><button class="small" data-wst="dev">← Voltar aos aparelhos</button></p>' + deviceForm();
   }
@@ -124,21 +111,21 @@ function viewWorkstation() {
 }
 
 // ---------- Workstation configuração ----------
+/** Quem pode excluir o aparelho: quem cadastrou ou o administrador. */
+const canDeleteDevice = (d) => isAdmin() || d.owner === state.uid;
+
 function viewWorkstationConfig() {
   const devices = Object.values(state.myDevices).sort((a, b) => byText((d) => d.area)(a, b) || a.created - b.created);
-  const categoryRow = (c) => '<div class="row between nowrap list-row compact">'
-    + '<button class="link-row" data-cat="' + esc(c.name) + '">' + categoryIcon(c) + esc(c.name)
-    + ' <span class="muted">(' + problemsOf(state.me.ws, c.name).length + ' problemas) ›</span></button>'
-    + removeButton('data-cdel="' + esc(c.name) + '"', 'Excluir categoria') + '</div>';
   const deviceRow = (d) => '<div class="card"><div class="row between"><div><b>' + esc(d.name) + '</b>'
-    + '<div class="muted">' + esc(d.area) + when(d.ip, ' · IP ' + esc(d.ip)) + '</div></div>'
-    + '<button class="small danger" data-ddel="' + d.id + '">' + (ui.deviceDeleteArmed === d.id ? 'Confirmar exclusão' : 'Excluir') + '</button></div></div>';
+    + '<div class="muted">' + esc(d.area) + when(d.ip, ' · IP ' + esc(d.ip)) + ' · cadastrado por ' + esc(nameOf(d.owner)) + '</div></div>'
+    + when(canDeleteDevice(d), '<button class="small danger" data-ddel="' + d.id + '">' + (ui.deviceDeleteArmed === d.id ? 'Confirmar exclusão' : 'Excluir') + '</button>')
+    + '</div></div>';
+  const cargo = companyCargos()[state.me.ws?.cargo];
 
   return '<h1>Workstation configuração</h1>'
-    + '<div class="card"><b>Nova categoria de aparelho</b>'
-    + '<label>Nome da categoria</label><input type="text" id="wc_n" placeholder="Ex.: Roteador">'
-    + '<label>Ícone (imagem PNG)</label><input type="file" id="wc_f" accept="image/png">'
-    + '<p><button class="primary" id="wc_add">Adicionar categoria</button></p></div>'
-    + '<h2>Categorias</h2><div class="card">' + (each(myCategories(), categoryRow) || '<span class="muted">Nenhuma.</span>') + '</div>'
+    + when(state.me.role === 'func', '<div class="card"><b>Minha função</b><p class="muted mb-0">'
+      + esc(cargo?.n || 'Não definida') + ' — vê as categorias: ' + esc(myCategories().map((c) => c.name).join(', ') || 'nenhuma') + '.</p>'
+      + '<p class="muted mb-0">Categorias, funções e problemas são definidos pelo administrador da empresa.</p></div>')
+    + when(isAdmin(), '<p class="muted">Categorias, funções e problemas ficam na aba <button class="small" data-tab="empresa">Empresa</button>.</p>')
     + '<h2>Aparelhos</h2>' + (each(devices, deviceRow) || emptyCard('Nenhum aparelho cadastrado.'));
 }

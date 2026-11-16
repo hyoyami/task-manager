@@ -3,6 +3,11 @@
    ========================================================================== */
 'use strict';
 
+/** Papéis: admin (cria a empresa, aprova membros; também pede e executa tarefas), func e sol. */
+const ROLE_LABEL = { admin: 'Administrador', func: 'Funcionário', sol: 'Solicitante' };
+/** Papéis que o administrador pode atribuir aos membros. */
+const ASSIGNABLE_ROLES = ['sol', 'func'];
+
 const PRIORITY_ORDER = { alta: 0, neutra: 1, baixa: 2 };
 const PRIORITY_LABEL = { alta: 'Alta', neutra: 'Neutra', baixa: 'Baixa' };
 
@@ -51,7 +56,10 @@ const AVAILABILITY = {
   off: { label: 'Indisponível', color: '#dc2626' },
 };
 
-/** Cargos e as categorias de aparelho sugeridas para cada um. */
+/**
+ * Funções (cargos) de fábrica e as categorias de aparelho que cada uma enxerga.
+ * Cada empresa pode criar outras funções (companies/<id>.cargos) — ver domain/company.js.
+ */
 const CARGOS = {
   ti: {
     n: 'TI (Técnico de informática)',
