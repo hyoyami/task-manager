@@ -2,7 +2,8 @@
    Aba Agenda de um funcionário: visões por dia, semana e mês, e ir para uma data.
    Agendar (arrastar/tocar num horário livre) só vale na semana corrente; o resto é visualização.
    O funcionário vê a própria agenda (e agenda arrastando cartões);
-   o solicitante escolhe o funcionário e vê os horários dos outros como "Ocupado".
+   solicitantes e administrador escolhem o funcionário e veem a agenda inteira dele (todas as tarefas,
+   de qualquer solicitante, e a que está em andamento) — só o próprio funcionário mexe nela.
    ========================================================================== */
 'use strict';
 
@@ -28,11 +29,12 @@ function dayTimeline(emp, day) {
   const items = allTasks()
     .filter((t) => t.emp === emp && t.start >= day && t.start < next && [...OCCUPYING, 'concluida'].includes(t.status))
     .map((task) => ({ s: task.start, e: taskEnd(task), task }));
-  items.push({ ...breakOf(p, day), label: 'Intervalo' });
+  const lunch = breakOf(p, day);
+  if (lunch.e > lunch.s) items.push({ ...lunch, label: 'Intervalo' });
   if (isWeeklyOff(p, day)) items.push({ s: ws, e: we, label: 'Folga semanal' });
   else if (isHolidayOff(day)) items.push({ s: ws, e: we, label: holidayText(holidayOn(day)), holiday: true });
   (p.off || []).filter((o) => o.e > ws && o.s < we).forEach((o) => items.push({
-    s: Math.max(o.s, ws), e: Math.min(o.e, we), label: 'Indisponível' + (o.note ? ': ' + o.note : ''),
+    s: Math.max(o.s, ws), e: Math.min(o.e, we), label: (o.brk ? 'Intervalo' : 'Indisponível') + (o.note ? ': ' + o.note : ''),
   }));
   items.sort((a, b) => a.s - b.s);
 
@@ -119,8 +121,6 @@ function agendaEntries(emp, from, to) {
   return byDay;
 }
 
-/** Quem vê a agenda de outro só enxerga "Ocupado" nas tarefas que não pediu (o admin vê tudo). */
-const isMasked = (t, canControl) => !canControl && !isAdmin() && t.req !== state.uid;
 
 function agendaToolbar() {
   const { label } = agendaRange();
@@ -141,13 +141,12 @@ function agendaToolbar() {
 
 /** Item compacto (semana/mês): horário + título; abre o dia ao tocar. */
 function calItem({ task: t, s }, canControl) {
-  const masked = isMasked(t, canControl);
   const prog = t.status === 'programada';
   const dev = taskDevice(t);
   return '<div class="cal-item prio-' + t.prio + when(t.status === 'concluida', ' done') + when(prog, ' prog') + '">'
     + '<span class="cal-time">' + (prog ? 'Prog.' : fmtTime(s)) + '</span> '
-    + '<span class="cal-title" title="' + (masked ? 'Ocupado' : esc(t.title) + when(dev, ' — ' + esc(dev?.name))) + '">'
-    + (masked ? 'Ocupado' : esc(t.title.replace(/^Manutenção: /, '')) + when(dev, ' · <b>' + esc(dev?.name) + '</b>')) + '</span></div>';
+    + '<span class="cal-title" title="' + esc(t.title) + when(dev, ' — ' + esc(dev?.name)) + '">'
+    + esc(t.title.replace(/^Manutenção: /, '')) + when(dev, ' · <b>' + esc(dev?.name) + '</b>') + '</span></div>';
 }
 
 function weekView(emp, canControl) {
@@ -226,7 +225,8 @@ function viewAgenda() {
   else if (ui.agendaView === 'mes') h += monthView(emp, canControl);
   else h += dayView(emp, canControl);
 
-  const running = allTasks().filter((t) => t.emp === emp && STARTED.includes(t.status) && (canControl || t.req === state.uid));
+  // Em andamento/pausadas do funcionário: visíveis para todos (o que ele está fazendo agora).
+  const running = allTasks().filter((t) => t.emp === emp && STARTED.includes(t.status));
   // Agenda à esquerda; tarefa em andamento fixa à direita (no celular, no topo).
   return '<div class="agenda-layout"><section class="agenda-main">' + h + '</section>'
     + '<aside class="agenda-side' + when(!running.length, ' side-empty') + '">' + runningPanel(running, canControl) + '</aside></div>';
@@ -242,6 +242,15 @@ function dayView(emp, canControl) {
   let h = '<p class="muted">Jornada ' + esc(p.start) + '–' + esc(p.end) + ' · intervalo ' + esc(p.bs) + '–' + esc(p.be)
     + (editable ? ' · semana de agendamento: ' + fmtDay(week.s) + ' a ' + fmtDay(week.e - 1)
       : ' · fora da semana atual: só visualização') + '</p>';
+
+  // Sem almoço fixo: botão "Iniciar intervalo" (ou o intervalo em curso) na agenda de hoje.
+  if (canControl && p.noBreak && day === startOfDay(Date.now())) {
+    const br = currentBreak(p);
+    h += br ? '<div class="card break-card"><b>Em intervalo' + (br.note ? ': ' + esc(br.note) : '') + '</b>'
+      + '<div class="muted">' + fmtTime(br.s) + '–' + fmtTime(br.e) + ' · volta às ' + fmtTime(br.e) + '</div>'
+      + '<p class="mb-0"><button class="small primary" id="br_end">Encerrar intervalo</button></p></div>'
+      : '<div class="row toolbar"><button class="primary" id="br_open">Iniciar intervalo</button></div>';
+  }
 
   if (canControl && editable) {
     const open = openTasksForMe();
@@ -265,13 +274,13 @@ function dayView(emp, canControl) {
   if (hol && hol.t === 'F') h += '<div class="card holiday-note">' + esc(holidayText(hol)) + ' · dia normal de trabalho</div>';
 
   const programmed = agendaEntries(emp, day, addDays(day, 1))[day]?.filter((x) => x.task.status === 'programada') || [];
-  h += each(programmed, (x) => taskCard(x.task, { canControl, masked: isMasked(x.task, canControl) }));
+  h += each(programmed, (x) => taskCard(x.task, { canControl }));
   h += each(dayTimeline(emp, day), (it) => {
     if (it.free) return editable ? freeSlots(it) : '<div class="card slot muted static">' + fmtTime(it.s) + '–' + fmtTime(it.e) + ' · livre</div>';
     if (it.holiday) return '<div class="card blocked holiday"><b>' + esc(it.label) + '</b><div class="muted">Dia sem expediente</div></div>';
     if (it.label) return '<div class="card blocked">' + fmtTime(it.s) + '–' + fmtTime(it.e) + ' · ' + esc(it.label) + '</div>';
-    // Horários de outros solicitantes aparecem como "Ocupado" (o administrador vê tudo).
-    return taskCard(it.task, { canControl, masked: isMasked(it.task, canControl), draggable: editable });
+    // Todos veem todas as tarefas da agenda (de qualquer solicitante); só o funcionário controla.
+    return taskCard(it.task, { canControl, draggable: editable });
   }) || emptyCard('Dia sem expediente.');
 
   if (!canControl) {

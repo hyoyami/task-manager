@@ -107,7 +107,7 @@ function openDeviceDeleteConfirm(id) {
     + '<button class="primary delete-solid" id="dx_ok">Excluir</button></div>');
 }
 
-/** Aparelho de outra pessoa (solicitante): somente leitura. */
+/** Aparelho visto pelo solicitante (ou de categoria fora da função): dados e log; só acrescenta anotações. */
 function openDeviceReadOnly(id) {
   const d = state.devices[id];
   if (!d) return;
@@ -116,6 +116,10 @@ function openDeviceReadOnly(id) {
     + '<p>' + tag(esc(d.area)) + ' ' + tag('<span class="status-dot" style="background:' + st.color + '"></span>' + st.label) + '</p>'
     + '<div class="muted">IP: ' + esc(d.ip || '—') + ' · Responsável: ' + esc(nameOf(d.owner)) + '</div>'
     + recurringOfDevice(d)
+    + '<label for="rl_t">Registrar no log</label>'
+    + '<textarea id="rl_t" rows="2" maxlength="1000" placeholder="Ex.: impressora fazendo barulho, papel acabou, luz piscando…"></textarea>'
+    + '<p class="muted mb-0">Fica no histórico do aparelho, com o seu nome, para toda a equipe.</p>'
+    + '<p><button class="small primary" data-rlg="' + id + '">Registrar</button></p>'
     + deviceLogPreview(d)
     + closeButton());
 }
@@ -274,6 +278,25 @@ function openStartOutsideHours(id, action = 'iniciar') {
     + '<p class="muted">Se ' + verb.toLowerCase() + ' agora, ela sai desse horário e entra na agenda de hoje, fora do expediente.</p>'
     + '<div class="row between mt-12"><button id="dn_no">Cancelar</button>'
     + '<button class="primary" id="so_ok">' + verb + ' agora</button></div>');
+}
+
+// ---------- Intervalo sob demanda ----------
+/** Nomes sugeridos e a duração padrão de cada um (minutos). */
+const BREAK_PRESETS = { 'Almoço': 60, 'Café': 15, 'Saída rápida': 30 };
+const BREAK_DURATIONS = [5, 10, 15, 20, 30, 45, 60, 90, 120];
+
+function openBreakDialog() {
+  const running = allTasks().find((t) => t.emp === state.uid && t.status === 'andamento');
+  openModal('<h2>Iniciar intervalo</h2>'
+    + '<label for="br_n">Nome do intervalo</label><input type="text" id="br_n" maxlength="40" placeholder="Ex.: Almoço">'
+    + '<div class="row gap-sm mt-6">' + each(Object.keys(BREAK_PRESETS), (n) => '<button type="button" class="small" data-brn="' + esc(n) + '">' + esc(n) + '</button>') + '</div>'
+    + '<label for="br_m">Duração</label><select id="br_m">'
+    + each(BREAK_DURATIONS, (m) => '<option value="' + m + '"' + when(m === 30, ' selected') + '>' + (m < 60 ? m + ' min' : Math.floor(m / 60) + ' h' + (m % 60 ? ' ' + (m % 60) + ' min' : '')) + '</option>')
+    + '</select>'
+    + (running ? '<p class="muted">A tarefa em andamento <b>' + esc(running.title) + '</b> será pausada; o que falta dela vai para logo depois do intervalo.</p>' : '')
+    + '<p class="muted">As tarefas agendadas nesse tempo vão para depois, na mesma ordem.</p>'
+    + '<div class="row between mt-12"><button id="dn_no">Cancelar</button><button class="primary" id="br_ok">Iniciar intervalo</button></div>');
+  setTimeout(() => $('#br_n')?.focus(), 50);
 }
 
 // ---------- Ausência ----------

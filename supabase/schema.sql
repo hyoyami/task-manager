@@ -284,6 +284,28 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created after insert on auth.users
   for each row execute function public.handle_new_user();
 
+-- Anotação no log do aparelho por qualquer membro ativo da empresa (o solicitante não altera aparelhos:
+-- só acrescenta esta linha). O texto leva o nome de quem escreveu (montado aqui, não pelo app).
+create or replace function public.add_device_log(dev_id text, txt text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  cid text := public.my_company();
+  who text;
+  entry jsonb;
+begin
+  if cid is null then raise exception 'Você não está em uma empresa.'; end if;
+  txt := left(btrim(coalesce(txt, '')), 1000);
+  if txt = '' then raise exception 'Escreva o que aconteceu.'; end if;
+  select coalesce(nullif(data->>'name', ''), 'Usuário') into who from public.profiles where id = auth.uid()::text;
+  entry := jsonb_build_object('t', (extract(epoch from now()) * 1000)::bigint, 'x', 'Anotação de ' || who || ': ' || txt);
+  update public.devices set data = jsonb_set(data, '{log}', coalesce(data->'log', '[]'::jsonb) || jsonb_build_array(entry))
+   where id = dev_id and company = cid;
+  if not found then raise exception 'Aparelho não encontrado.'; end if;
+  return entry;
+end $$;
+revoke all on function public.add_device_log(text, text) from public, anon;
+grant execute on function public.add_device_log(text, text) to authenticated;
+
 -- Nome de usuário livre? (usado no cadastro, antes de existir sessão)
 create or replace function public.username_available(uname text) returns boolean
 language sql stable security definer set search_path = public as $$

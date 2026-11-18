@@ -331,6 +331,16 @@ def main():
         pg.select_option("#af_s", "")
         r.click(f'[data-rodev="{dev_id}"]')
         r.shot("aparelho-ro", "#mdb")
+        # Solicitante registra no log do aparelho (vai com o nome dele, para todos verem).
+        status_before = pg.evaluate(f"JSON.parse(localStorage.getItem('tm_db_v1'))['devices/{dev_id}'].status")
+        r.click(f'[data-rlg="{dev_id}"]')
+        assert "Escreva o que aconteceu" in toast(r)
+        pg.fill("#rl_t", "Luz de erro piscando")
+        r.click(f'[data-rlg="{dev_id}"]')
+        assert "Anotação de Bruno: Luz de erro piscando" in pg.inner_text("#mdb .history.log")
+        stored = pg.evaluate(f"JSON.parse(localStorage.getItem('tm_db_v1'))['devices/{dev_id}'].log.map(l => l.x)")
+        assert stored[-1] == "Anotação de Bruno: Luz de erro piscando", stored
+        assert pg.evaluate(f"JSON.parse(localStorage.getItem('tm_db_v1'))['devices/{dev_id}'].status") == status_before
         r.click("#dn_no")
 
         # Tarefa simples (validação + envio)
@@ -429,9 +439,10 @@ def main():
         # Log resumido (5 últimos) e "+log" com o histórico completo.
         preview = [l for l in pg.inner_text("#mdb .history.log").split("\n") if l.strip()]
         assert len(preview) == 5 and preview[0].endswith("Operacional (manutenção concluída)"), preview
-        assert "(5 de 7)" in pg.inner_text("#mdb .log-head")
+        assert "(5 de 8)" in pg.inner_text("#mdb .log-head")  # inclui a anotação do solicitante
         r.click(f'[data-fulllog="{dev_id}"]')
-        assert pg.locator("#mdb .log-row").count() == 7
+        assert pg.locator("#mdb .log-row").count() == 8
+        assert "Anotação de Bruno: Luz de erro piscando" in pg.inner_text("#mdb")  # visível para a funcionária
         assert pg.inner_text("#mdb .log-row >> nth=-1").count("Cadastro") == 1  # mais antigo por último
         r.shot("log-completo", "#mdb")
         r.click(f'#mdb [data-dev="{dev_id}"]')  # voltar ao aparelho
@@ -484,6 +495,8 @@ def main():
         n += mobile_strip_flow(b, shots_dir)
         n += pause_flow(b, shots_dir)
         n += device_edit_flow(b, shots_dir)
+        n += agenda_visibility_flow(b, shots_dir)
+        n += break_flow(b, shots_dir)
         print(f"OK: {len(r.shots) + n} telas verificadas, sem erros de JavaScript.")
         b.close()
 
@@ -1474,6 +1487,174 @@ def device_edit_flow(browser, shots_dir):
     r.click(f'[data-devdel="{dev}"]')
     r.click("#dx_ok")
     assert pg.locator(card).count() == 0 and not pg.evaluate(f"!!state.devices['{dev}']")
+    assert not r.errors, r.errors
+    ctx.close()
+    return len(r.shots)
+
+
+def agenda_visibility_flow(browser, shots_dir):
+    """Agenda do funcionário aberta a todos: um solicitante vê tarefas que não pediu e a que está em andamento."""
+    ctx = browser.new_context(viewport={"width": 420, "height": 1400}, timezone_id="America/Sao_Paulo", locale="pt-BR")
+    pg = ctx.new_page()
+    pg.clock.set_fixed_time(NOW)
+    r = Run(pg, shots_dir / "visibilidade" if shots_dir else None)
+    if r.shots_dir:
+        r.shots_dir.mkdir(exist_ok=True)
+    pg.goto(INDEX)
+    r.signup("Ada", "ada@teste.com")
+    r.create_company("Aberta Ltda", [("Impressora", "Impressora Hall", "10.0.0.9")])
+    dev = pg.evaluate("Object.keys(state.devices)[0]")
+    func_link, sol_link = r.invite("func"), r.invite("sol")
+    r.logout()
+    pg.goto(func_link)
+    r.signup("Fred", "fred@teste.com")
+    fred = pg.evaluate("state.uid")
+    r.logout()
+    # Ada (admin) pede duas tarefas para o Fred; ele aceita as duas e inicia a primeira.
+    r.login("ada")
+    for title, link in [("Trocar toner", True), ("Organizar cabos", False)]:
+        r.click("#nfab")
+        if link:
+            pg.select_option("#f_v", dev)
+            r.wait()
+        pg.fill("#f_t", title)
+        pg.fill("#f_d", "Teste")
+        pg.check(f'.f_e[value="{fred}"]')
+        r.click("#f_go")
+    r.logout()
+    r.login("fred")
+    for title in ("Manutenção: Trocar toner", "Organizar cabos"):
+        tid = pg.evaluate(f"allTasks().find(t => t.title === '{title}').id")
+        r.tab("tarefas")
+        pg.select_option(f'.dsel[data-i="{tid}"]', "30")
+        r.wait(200)
+        r.click(f'[data-a="aceitar"][data-i="{tid}"]')
+    toner = pg.evaluate("allTasks().find(t => t.title === 'Manutenção: Trocar toner').id")
+    r.tab("agenda")
+    r.click(f'[data-a="iniciar"][data-i="{toner}"]')
+    r.logout()
+    # Sol (solicitante que não pediu nada) vê a agenda completa do Fred.
+    pg.goto(sol_link)
+    r.signup("Sol", "sol@teste.com")
+    r.tab("agenda")
+    pg.select_option("#selEmp", fred)
+    r.wait()
+    main_txt, side_txt = pg.inner_text(".agenda-main"), pg.inner_text(".agenda-side")
+    assert "Ocupado" not in main_txt and "Organizar cabos" in main_txt and "Trocar toner" in main_txt, main_txt
+    assert "de Ada para Fred" in main_txt, main_txt
+    assert "Em andamento" in side_txt and "Trocar toner" in side_txt and "Impressora Hall" in side_txt, side_txt
+    # Só vê: sem iniciar/pausar/concluir/±15 nem cancelar (não pediu).
+    assert pg.locator('.agenda-side [data-a], .agenda-main [data-a], [data-d]').count() == 0
+    r.shot("agenda-de-outro")
+    r.click('[data-av="semana"]')
+    assert "Organizar cabos" in pg.inner_text(".week-grid")
+    # Abas Tarefas/Histórico continuam individuais.
+    r.tab("tarefas")
+    assert "Organizar cabos" not in pg.inner_text("#app")
+    r.logout()
+
+    # Tarefas › Ativas: filtros "Criada por" e "Vinculada a"; sem usuário vinculado no final.
+    r.login("ada")
+    me = pg.evaluate("state.uid")
+    r.click("#nfab")
+    pg.fill("#f_t", "Conferir backup")
+    pg.fill("#f_d", "Teste")
+    pg.check(f'.f_e[value="{me}"]')
+    r.click("#f_go")
+    r.click("#nfab")
+    pg.fill("#f_t", "Limpar sala")  # ninguém marcado: aberta para a equipe (sem usuário vinculado)
+    pg.fill("#f_d", "Teste")
+    r.click("#f_go")
+    r.tab("tarefas")
+    titles = lambda: pg.eval_on_selector_all("#app .card > .row.between b", "e => e.map(x => x.textContent.trim())")
+    t = titles()
+    assert t[-1] == "Limpar sala" and {"Organizar cabos", "Conferir backup"} <= set(t[:-1]), t  # sem vínculo por último
+    assert "Sem usuário vinculado" in pg.inner_text("#app")
+    pg.select_option("#tf_e", fred)
+    r.wait()
+    txt = r.shot("filtro-usuario")
+    assert titles() == ["Organizar cabos"], titles()
+    pg.select_option("#tf_e", "__none")
+    r.wait()
+    assert titles() == ["Limpar sala"], titles()
+    pg.select_option("#tf_e", "")
+    pg.select_option("#tf_r", me)
+    r.wait()
+    assert set(titles()) == {"Organizar cabos", "Conferir backup", "Limpar sala"}, titles()
+    pg.select_option("#tf_e", me)
+    r.wait()
+    assert titles() == ["Conferir backup"], titles()
+    r.click('[data-tfclear="1"]')
+    assert len(titles()) == 3 and pg.input_value("#tf_r") == "" and pg.input_value("#tf_e") == ""
+    assert not r.errors, r.errors
+    ctx.close()
+    return len(r.shots)
+
+
+def break_flow(browser, shots_dir):
+    """Sem almoço fixo: "Iniciar intervalo" pausa a tarefa em andamento e empurra a agenda para depois, na mesma ordem."""
+    ctx = browser.new_context(viewport={"width": 420, "height": 1400}, timezone_id="America/Sao_Paulo", locale="pt-BR")
+    pg = ctx.new_page()
+    at = lambda h, m=0: pg.clock.set_fixed_time(datetime(2026, 11, 11, h, m, tzinfo=TZ))
+    at(9)
+    r = Run(pg, shots_dir / "intervalo" if shots_dir else None)
+    if r.shots_dir:
+        r.shots_dir.mkdir(exist_ok=True)
+    pg.goto(INDEX)
+    r.signup("Nina", "nina@teste.com")
+    r.create_company("Intervalo Ltda")
+    me = pg.evaluate("state.uid")
+    # Horário de trabalho: desmarca o almoço fixo.
+    r.menu("folgas")
+    assert pg.is_visible("#p_bs")
+    pg.check("#p_nb")
+    assert not pg.is_visible("#p_bs")  # campos de almoço somem
+    r.click("#wh_go")
+    assert pg.evaluate("state.me.noBreak") is True
+    r.tab("agenda")
+    assert "12:00–13:00 · Intervalo" not in pg.inner_text(".agenda-main")  # sem almoço reservado
+
+    ids = []
+    for title, minutes in [("Tarefa A", 60), ("Tarefa B", 30), ("Tarefa C", 30)]:
+        r.click("#nfab")
+        pg.fill("#f_t", title)
+        pg.fill("#f_d", "Teste")
+        pg.check(f'.f_e[value="{me}"]')
+        r.click("#f_go")
+        tid = pg.evaluate(f"allTasks().find(t => t.title === '{title}').id")
+        r.tab("tarefas")
+        pg.select_option(f'.dsel[data-i="{tid}"]', str(minutes))
+        r.wait(200)
+        r.click(f'[data-a="aceitar"][data-i="{tid}"]')
+        ids.append(tid)
+    a, b, c = ids
+    task = lambda tid: pg.evaluate(f"state.tasks['{tid}']")
+    assert [task(t)["start"] for t in ids] == [ms(9), ms(10), ms(10, 30)]
+    r.tab("agenda")
+    r.click(f'[data-a="iniciar"][data-i="{a}"]')
+
+    # 09:20: intervalo "Almoço" de 30 min.
+    at(9, 20)
+    r.click("#br_open")
+    r.click('[data-brn="Almoço"]')
+    assert pg.input_value("#br_n") == "Almoço" and pg.input_value("#br_m") == "60"
+    pg.select_option("#br_m", "30")
+    r.shot("iniciar-intervalo", "#mdb")
+    r.click("#br_ok")
+    r.wait(400)
+    ta, tb, tc = task(a), task(b), task(c)
+    assert ta["status"] == "pausada" and ta["worked"] == 20 and ta["start"] == ms(9, 50), ta  # o que falta, logo após o intervalo
+    assert (tb["start"], tc["start"]) == (ms(10, 30), ms(11)), (tb["start"], tc["start"])  # mesma ordem, empurradas
+    assert any("Pausada automaticamente: intervalo" in h["x"] for h in ta["hist"]), ta["hist"]
+    txt = r.shot("em-intervalo")
+    assert "Em intervalo: Almoço" in txt and "Intervalo: Almoço" in txt, txt
+    r.tab("equipe")
+    assert "Em intervalo (Almoço) até 09:50" in pg.inner_text("#app")
+    # Encerrar antes: o intervalo termina agora.
+    at(9, 30)
+    r.tab("agenda")
+    r.click("#br_end")
+    assert pg.evaluate("currentBreak()") is None and pg.locator("#br_open").count() == 1
     assert not r.errors, r.errors
     ctx.close()
     return len(r.shots)

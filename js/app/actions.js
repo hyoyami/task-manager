@@ -141,6 +141,21 @@ async function submitProblemEdit() {
   openCategory(area);
 }
 
+/** Solicitante: anotação no log do aparelho (pela função do banco). */
+async function addRequesterNote(id, btn) {
+  const text = $('#rl_t').value.trim();
+  if (!text) return say('Escreva o que aconteceu.');
+  btn.disabled = true;
+  try {
+    await addDeviceNoteAsMember(id, text);
+    say('Registrado no log do aparelho.');
+    openDeviceReadOnly(id);
+  } catch (err) {
+    btn.disabled = false;
+    say(err.message);
+  }
+}
+
 async function addDeviceNote(id) {
   const text = $('#dv_t').value.trim();
   if (!text) return;
@@ -430,9 +445,11 @@ async function saveProfile() {
 }
 
 /** Valida a jornada: entrada < almoço início < almoço fim < saída. Retorna a mensagem de erro ou ''. */
-function workHoursError({ start, end, bs, be }) {
-  if (!start || !end || !bs || !be) return 'Preencha entrada, saída e o intervalo de almoço.';
+function workHoursError({ start, end, bs, be, noBreak }) {
+  if (!start || !end) return 'Preencha a entrada e a saída.';
   if (start >= end) return 'A saída precisa ser depois da entrada.';
+  if (noBreak) return '';
+  if (!bs || !be) return 'Preencha o intervalo de almoço (ou marque "Não tenho horário fixo de almoço").';
   if (bs >= be) return 'O fim do almoço precisa ser depois do início.';
   if (bs <= start || be >= end) return 'O almoço precisa ficar dentro do horário de trabalho.';
   return '';
@@ -447,7 +464,7 @@ function outsideWorkHours(t, p) {
 }
 
 async function saveWorkHours() {
-  const hours = { start: $('#p_s').value, end: $('#p_e').value, bs: $('#p_bs').value, be: $('#p_be').value };
+  const hours = { start: $('#p_s').value, end: $('#p_e').value, bs: $('#p_bs').value, be: $('#p_be').value, noBreak: $('#p_nb').checked };
   const error = workHoursError(hours);
   if (error) return say(error);
   await patchMyProfile(hours);
@@ -455,6 +472,22 @@ async function saveWorkHours() {
   // Tarefas que ficaram fora da nova jornada voltam a pendente e são reencaixadas.
   const p = profileOf(state.uid);
   await requeueForTimeOff((t) => outsideWorkHours(t, p), 'horário de trabalho alterado');
+}
+
+// ---------- Intervalo sob demanda ----------
+async function confirmStartBreak(btn) {
+  const note = $('#br_n').value.trim();
+  const minutes = +$('#br_m').value;
+  if (!note) return say('Dê um nome ao intervalo (ex.: Almoço).');
+  if (!(minutes >= 5 && minutes <= 240)) return say('Escolha a duração do intervalo.');
+  btn.disabled = true;
+  closeModal();
+  const { paused, moved, pending } = await startBreak(note, minutes);
+  say('Intervalo "' + note + '" iniciado (' + minutes + ' min).'
+    + (paused ? ' A tarefa em andamento foi pausada e continua depois do intervalo.' : '')
+    + (moved ? ' ' + plural(moved, 'tarefa reajustada', 'tarefas reajustadas') + '.' : '')
+    + (pending ? ' ' + plural(pending, 'ficou pendente', 'ficaram pendentes') + '.' : ''));
+  render();
 }
 
 async function saveWeeklyOff() {
@@ -563,6 +596,9 @@ const ACTIONS_BY_ID = {
   wk_go: saveWeeklyOff,
   o_go: addTimeOff,
   ab_open: openAbsentConfirm,
+  br_open: () => openBreakDialog(),
+  br_ok: confirmStartBreak,
+  br_end: async () => { await endBreak(); say('Intervalo encerrado. Bom trabalho!'); render(); },
   de_ok: saveDeviceEdit,
   dx_ok: confirmDeviceDelete,
   so_ok: async (btn) => {
@@ -581,6 +617,8 @@ const ACTIONS_BY_DATA = {
   go: (v) => { openMenu(false); ui.wsStep = 'dev'; goTo(v); },
   ag: (v) => { ui.agendaEmp = v; goTo('agenda'); },
   tf: (v) => { ui.taskFilter = v; render(); },
+  tfclear: () => { ui.taskReq = ''; ui.taskEmp = ''; render(); },
+  brn: (v) => { const n = $('#br_n'); if (n) n.value = v; const m = $('#br_m'); if (m && BREAK_PRESETS[v]) m.value = BREAK_PRESETS[v]; },
   day: (v) => moveAgendaDay(+v),
   av: (v) => { ui.agendaView = v; render(); },
   agday: (v) => openAgendaDay(+v),
@@ -613,6 +651,7 @@ const ACTIONS_BY_DATA = {
   rodev: (v) => openDeviceReadOnly(v),
   fulllog: (v) => openDeviceLog(v),
   lg: addDeviceNote,
+  rlg: addRequesterNote,
   ddel: armDeviceDelete,
   devdel: deleteDeviceFromModal,
   devedit: (v) => openDeviceEdit(v),

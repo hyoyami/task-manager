@@ -102,7 +102,7 @@ function taskButtons(t, canControl, { withHistory = true } = {}) {
 /**
  * Cartão de tarefa.
  * @param {object} t tarefa
- * @param {object} opt canControl: é o funcionário responsável; masked: mostrar só "Ocupado";
+ * @param {object} opt canControl: é o funcionário responsável;
  *                     draggable: cartão agendado pode ser arrastado na agenda.
  */
 /**
@@ -127,11 +127,13 @@ function taskTimeHeader(t) {
     + '<hr class="card-sep">';
 }
 
-function taskCard(t, { canControl = false, masked = false, draggable = false } = {}) {
-  if (masked) return '<div class="card">' + taskTimeHeader(t) + '<b>Ocupado</b></div>';
+function taskCard(t, { canControl = false, draggable = false } = {}) {
   const drag = draggable && canControl && t.status === 'agendada';
   const moved = t.initial && t.start && t.initial !== t.start;
-  const who = canControl ? 'de ' + nameOf(t.req) : isOpenTask(t) ? 'aberta para a equipe' + (t.cat ? ' (' + t.cat + ')' : '') : 'para ' + nameOf(t.emp);
+  // Quem executa vê quem pediu; quem pediu vê quem executa; os demais (agenda de outro) veem os dois.
+  const who = canControl ? 'de ' + nameOf(t.req)
+    : isOpenTask(t) ? 'aberta para a equipe' + (t.cat ? ' (' + t.cat + ')' : '')
+      : t.req === state.uid ? 'para ' + nameOf(t.emp) : 'de ' + nameOf(t.req) + ' para ' + nameOf(t.emp);
   return '<div class="card prio-' + t.prio + when(t.status === 'andamento', ' running') + '" data-tid="' + t.id + '">'
     + taskTimeHeader(t)
     + '<div class="row between' + when(drag, ' drag-row') + '"><b>' + when(drag, GRIP) + esc(t.title) + '</b><span>' + statusTags(t) + '</span></div>'

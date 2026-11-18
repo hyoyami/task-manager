@@ -57,7 +57,10 @@ function workHoursCard(p) {
   return '<div class="card"><b>Horário de trabalho</b>'
     + '<p class="muted">Defina sua jornada diária e o intervalo para almoço. A agenda só usa horários dentro dela.</p>'
     + '<div class="grid-2">' + timeField('p_s', 'Entrada', p.start) + timeField('p_e', 'Saída', p.end) + '</div>'
-    + '<div class="grid-2">' + timeField('p_bs', 'Almoço — início', p.bs) + timeField('p_be', 'Almoço — fim', p.be) + '</div>'
+    + '<label class="check"><input type="checkbox" id="p_nb"' + when(p.noBreak, ' checked') + '>'
+    + 'Não tenho horário fixo de almoço</label>'
+    + '<p class="muted">Marcado, a agenda não reserva o almoço: você usa o botão <b>Iniciar intervalo</b> na Agenda quando parar.</p>'
+    + '<div class="grid-2 lunch-fields"' + when(p.noBreak, ' hidden') + '>' + timeField('p_bs', 'Almoço — início', p.bs) + timeField('p_be', 'Almoço — fim', p.be) + '</div>'
     + '<p><button class="primary" id="wh_go">Salvar horário</button></p></div>';
 }
 
@@ -89,8 +92,8 @@ function viewTimeOff() {
     + '<h2>Folgas pontuais</h2><div class="card"><div class="row">'
     + '<div><label>De</label><input type="date" id="o_s"></div><div><label>Até</label><input type="date" id="o_e"></div></div>'
     + '<label>Motivo</label><input type="text" id="o_n"><p><button class="small" id="o_go">Adicionar</button></p>'
-    + each(p.off || [], (o, i) => '<div class="row between muted"><span>' + fmtDay(o.s) + ' → ' + fmtDay(o.e - 1) + ' ' + esc(o.note || '')
-      + '</span><button class="small danger" data-rm="' + i + '">Remover</button></div>')
+    + each(p.off || [], (o, i) => (o.brk ? '' : '<div class="row between muted"><span>' + fmtDay(o.s) + ' → ' + fmtDay(o.e - 1) + ' ' + esc(o.note || '')
+      + '</span><button class="small danger" data-rm="' + i + '">Remover</button></div>'))
     + '</div>';
 }
 

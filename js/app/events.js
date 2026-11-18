@@ -76,6 +76,10 @@ async function onChange(e) {
         x.blur();
         render();
       }
+    } else if (x.id === 'tf_r' || x.id === 'tf_e') {
+      ui[x.id === 'tf_r' ? 'taskReq' : 'taskEmp'] = x.value;
+      x.blur();
+      render();
     } else if (x.id === 'selEmp') {
       ui.agendaEmp = x.value;
       render();
@@ -84,6 +88,9 @@ async function onChange(e) {
       $('#f_ebox').innerHTML = employeePicker(x.value);
       $('#f_rbox').innerHTML = recurrencePicker(x.value);
       $('#f_p').disabled = false;
+    } else if (x.id === 'p_nb') {
+      const box = $('.lunch-fields');
+      if (box) box.hidden = x.checked;
     } else if (x.id === 'f_rc') {
       setRecurrenceOn(x.checked);
     } else if (x.classList.contains('m-role')) {

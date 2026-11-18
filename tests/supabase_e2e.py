@@ -272,6 +272,14 @@ def main():
             r = sol.db_call(f"await db.doc('companies/{company}').update({{ probs: {{}} }})")
             assert r.startswith("erro"), r  # solicitante não edita nada da empresa
 
+            # Solicitante sem tarefa no aparelho: anotação no log pela função do banco (com o nome dele);
+            # alterar o aparelho direto continua bloqueado; outra empresa não consegue anotar.
+            r = sol.db_call(f"await db.call('add_device_log', {{ dev_id: '{dev_id}', txt: 'Papel acabou' }})")
+            assert r == "ok", r
+            admin.pg.wait_for_function(f"(state.devices['{dev_id}']?.log || []).some(l => l.x === 'Anotação de Sara Teste: Papel acabou')", timeout=15000)
+            r = out.db_call(f"await db.call('add_device_log', {{ dev_id: '{dev_id}', txt: 'invasão' }})")
+            assert r.startswith("erro"), r
+
             # Segurança dentro da empresa.
             r = sol.db_call(f"await db.doc('profiles/{func_id}').update({{ name: 'Hacker' }})")
             assert r.startswith("erro"), r

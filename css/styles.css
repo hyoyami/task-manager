@@ -396,6 +396,11 @@ body:has(.fab.show) main { padding-bottom: 88px; }
 .dev-chip .cat-icon { width: 18px; height: 18px; margin: 0; }
 .dev-chip-area { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .dev-chip-area::before { content: '· '; }
+[hidden] { display: none !important; }
+.task-filter { margin: 4px 0 12px; }
+.break-card { border-left: 4px solid var(--text); }
+.task-filter p { margin: 6px 0 0; }
+.unlinked-head { margin-top: 24px; padding-top: 12px; border-top: 1px dashed var(--border); }
 .strip { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; scroll-snap-type: x proximity;
   -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
 .strip .card { min-width: 230px; max-width: 260px; flex: 0 0 auto; margin-bottom: 0; scroll-snap-align: start; }

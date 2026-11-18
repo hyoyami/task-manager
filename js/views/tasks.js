@@ -3,24 +3,62 @@
    ========================================================================== */
 'use strict';
 
+const UNLINKED = '__none'; // filtro "Vinculada a: sem usuário vinculado"
+
 function viewTasks() {
   const history = ui.taskFilter === 'hist';
   // Funcionário: as que executa; solicitante: as que pediu; administrador: ambas.
   const role = state.me.role;
   const mine = (t) => (role !== 'sol' && t.emp === state.uid) || (role !== 'func' && t.req === state.uid);
-  const statuses = history ? FINISHED : ['aguardando', 'pendente', 'agendada', 'programada'];
-  const list = allTasks()
-    .filter((t) => mine(t) && statuses.includes(t.status))
-    .sort((a, b) => (history ? finishedAt(b) - finishedAt(a)
-      : (a.status === 'programada') - (b.status === 'programada') || b.created - a.created));
-
-  const open = history ? [] : openTasksForMe().sort((a, b) => b.created - a.created);
-  return '<div class="row toolbar">'
+  const toolbar = '<div class="row toolbar">'
     + '<button class="small' + when(!history, ' primary') + '" data-tf="ativas">Ativas</button>'
-    + '<button class="small' + when(history, ' primary') + '" data-tf="hist">Histórico</button></div>'
-    + when(open.length, '<h2>Abertas para a equipe</h2>' + each(open, openTaskCard) + '<h2>Minhas tarefas</h2>')
-    + (each(list, (t) => (history ? finishedRow(t) : taskCard(t, { canControl: t.emp === state.uid })))
-      || emptyCard(history ? 'Nenhuma tarefa concluída ou cancelada.' : 'Nenhuma tarefa ativa.'));
+    + '<button class="small' + when(history, ' primary') + '" data-tf="hist">Histórico</button></div>';
+
+  if (history) {
+    const done = allTasks().filter((t) => mine(t) && FINISHED.includes(t.status)).sort((a, b) => finishedAt(b) - finishedAt(a));
+    return toolbar + (each(done, finishedRow) || emptyCard('Nenhuma tarefa concluída ou cancelada.'));
+  }
+
+  // Ativas: as minhas + as abertas para a equipe que posso assumir. Sem usuário vinculado ficam no final.
+  const active = ['aguardando', 'pendente', 'agendada', 'programada'];
+  const byId = {};
+  allTasks().filter((t) => mine(t) && active.includes(t.status)).forEach((t) => { byId[t.id] = t; });
+  openTasksForMe().forEach((t) => { byId[t.id] = t; });
+  const all = Object.values(byId);
+
+  // Filtros: quem criou (solicitante) e a quem está vinculada (responsável).
+  const byName = (a, b) => (a === state.uid ? -1 : b === state.uid ? 1 : String(nameOf(a)).localeCompare(String(nameOf(b))));
+  const creators = [...new Set(all.map((t) => t.req).filter(Boolean))].sort(byName);
+  const assignees = [...new Set(all.map((t) => t.emp).filter(Boolean))].sort(byName);
+  if (ui.taskReq && !creators.includes(ui.taskReq)) ui.taskReq = '';
+  if (ui.taskEmp && ui.taskEmp !== UNLINKED && !assignees.includes(ui.taskEmp)) ui.taskEmp = '';
+  const { taskReq: req, taskEmp: emp } = ui;
+  const pass = (t) => (!req || t.req === req) && (!emp || (emp === UNLINKED ? !t.emp : t.emp === emp));
+  const order = (a, b) => (a.status === 'programada') - (b.status === 'programada') || b.created - a.created;
+  const linked = all.filter((t) => t.emp && pass(t)).sort(order);
+  const unlinked = all.filter((t) => !t.emp && pass(t)).sort(order);
+
+  const person = (id) => esc(nameOf(id)) + when(id === state.uid, ' (você)');
+  const select = (id, label, value, people, extra = '') => '<div><label for="' + id + '">' + label + '</label>'
+    + '<select id="' + id + '" data-live><option value="">Todos</option>'
+    + each(people, (p) => '<option value="' + esc(p) + '"' + when(p === value, ' selected') + '>' + person(p) + '</option>') + extra
+    + '</select></div>';
+  const hasUnlinked = all.some((t) => !t.emp);
+  const filters = all.length ? '<div class="task-filter"><div class="grid-2">'
+    + select('tf_r', 'Criada por', req, creators)
+    + select('tf_e', 'Vinculada a', emp, assignees,
+      when(hasUnlinked || emp === UNLINKED, '<option value="' + UNLINKED + '"' + when(emp === UNLINKED, ' selected') + '>Sem usuário vinculado</option>'))
+    + '</div>' + when(req || emp, '<p class="muted">' + plural(linked.length + unlinked.length, 'tarefa', 'tarefas')
+      + ' no filtro · <button class="link" data-tfclear="1">limpar filtros</button></p>') + '</div>' : '';
+
+  const card = (t) => (canTakeTask(t) ? openTaskCard(t) : taskCard(t, { canControl: t.emp === state.uid }));
+  return toolbar + filters
+    + each(linked, card)
+    + when(unlinked.length, '<h2 class="unlinked-head">Sem usuário vinculado</h2>'
+      + '<p class="muted">Abertas para a equipe: ainda ninguém assumiu. O primeiro que aceitar fica com ela.</p>'
+      + each(unlinked, card))
+    + (linked.length || unlinked.length ? ''
+      : emptyCard(req || emp ? 'Nenhuma tarefa ativa com esses filtros.' : 'Nenhuma tarefa ativa.'));
 }
 
 /** Aparelhos da empresa ordenados por categoria e nome (para o seletor). */

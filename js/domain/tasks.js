@@ -471,6 +471,86 @@ async function applyProposal() {
   ui.proposal = null;
 }
 
+// ---------- Intervalo sob demanda (funcionário sem almoço fixo) ----------
+// Fica em `off` como { s, e, note, brk: 1 }: a agenda já respeita folgas (findSlot/fitsAt/dayTimeline).
+
+/** Intervalo em curso do usuário (ou null). */
+const currentBreak = (profile = profileOf(state.uid), now = Date.now()) =>
+  (profile.off || []).find((o) => o.brk && now >= o.s && now < o.e) || null;
+
+/** O horário [s, s + min) cabe para o perfil, dado `busy` (jornada, almoço, folgas, feriado e as já marcadas)? */
+function slotFree(profile, s, min, busy) {
+  const day = startOfDay(s);
+  const e = s + min * MIN;
+  if (s < atTime(day, profile.start) || e > atTime(day, profile.end) || isWeeklyOff(profile, s) || isHolidayOff(s)) return false;
+  return ![...busy, ...(profile.off || []), breakOf(profile, day)].some((b) => s < b.e && e > b.s);
+}
+
+/**
+ * Começa um intervalo agora (`minutes`, nome `note`). A tarefa em andamento é pausada e o que falta dela vai para
+ * logo depois do intervalo; as agendadas que colidirem são empurradas para depois, na mesma ordem.
+ * Devolve { paused, moved, pending }.
+ */
+async function startBreak(note, minutes) {
+  const now = Date.now();
+  const end = now + minutes * MIN;
+  const p = profileOf(state.uid);
+  const today = startOfDay(now);
+  // Guarda só os intervalos de hoje em diante (os antigos não servem mais para nada).
+  const off = (p.off || []).filter((o) => !o.brk || o.e > today);
+  await patchMyProfile({ off: [...off, { s: now, e: end, note, brk: 1 }] });
+  const label = '"' + note + '" (' + fmtTime(now) + '–' + fmtTime(end) + ')';
+
+  const running = allTasks().find((t) => t.emp === state.uid && t.status === 'andamento');
+  let paused = null;
+  if (running) {
+    const worked = Math.min(running.dur, workedMin(running, now));
+    await commitTask(running.id, { status: 'pausada', worked, pausedAt: now, start: null },
+      'Pausada automaticamente: intervalo ' + label + ' (' + worked + ' de ' + running.dur + ' min feitos)');
+    notify(running.req, 'Tarefa ' + quote(running) + ' pausada: ' + nameOf(state.uid) + ' entrou em intervalo');
+    paused = state.tasks[running.id];
+  }
+
+  // Ordem: a que estava em andamento (continua logo depois do intervalo) e as agendadas, na ordem em que estavam.
+  const queue = allTasks().filter((t) => t.emp === state.uid && t.status === 'agendada' && taskEnd(t) > now)
+    .sort((a, b) => a.start - b.start);
+  const movingIds = new Set([paused?.id, ...queue.map((t) => t.id)]);
+  const busy = allTasks().filter((t) => t.emp === state.uid && !movingIds.has(t.id) && t.start && OCCUPYING.includes(t.status))
+    .map((t) => ({ s: t.start, e: taskEnd(t) }));
+  const prof = profileOf(state.uid);
+  let moved = 0;
+  let pending = 0;
+  if (paused) {
+    const s = findSlot(prof, busy, remainingMin(paused), now); // o intervalo (em `off`) já bloqueia até o fim
+    if (s) {
+      busy.push({ s, e: s + remainingMin(paused) * MIN });
+      await commitTask(paused.id, { start: s }, 'Restante reservado para ' + fmtDayTime(s) + ' (depois do intervalo)');
+    }
+  }
+  for (const t of queue) {
+    if (slotFree(prof, t.start, remainingMin(t), busy)) { busy.push({ s: t.start, e: taskEnd(t) }); continue; }
+    const s = findSlot(prof, busy, remainingMin(t), Math.max(now, t.start));
+    if (s) {
+      busy.push({ s, e: s + remainingMin(t) * MIN });
+      await commitTask(t.id, { start: s, initial: t.initial || t.start }, 'Reajustada pelo intervalo ' + label + ': ' + fmtDayTime(s));
+      notify(t.req, 'Tarefa ' + quote(t) + ' reagendada para ' + fmtDayTime(s) + ' (' + nameOf(state.uid) + ' em intervalo)');
+      moved++;
+    } else {
+      await requeue(t, 'intervalo ' + label);
+      pending++;
+    }
+  }
+  return { paused: !!paused, moved, pending };
+}
+
+/** Encerra agora o intervalo em curso (a reserva da pausada pode ser adiantada). */
+async function endBreak() {
+  const now = Date.now();
+  const off = (profileOf(state.uid).off || []).map((o) => (o.brk && now >= o.s && now < o.e ? { ...o, e: now } : o));
+  await patchMyProfile({ off });
+  await reflowPausedTasks();
+}
+
 // ---------- Ausência no dia ----------
 /** O funcionário está marcado como ausente (folga cobrindo o dia todo) no dia `day`? */
 const isAbsentOn = (profile, day) => (profile.off || []).some((o) => o.s <= day && o.e >= addDays(day, 1));

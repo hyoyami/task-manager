@@ -56,6 +56,9 @@ const ui = {
   openHistory: {},
   /** Aba Tarefas: 'ativas' | 'hist'. */
   taskFilter: 'ativas',
+  /** Aba Tarefas › Ativas: filtros "Criada por" (solicitante) e "Vinculada a" (responsável; '__none' = sem ninguém). */
+  taskReq: '',
+  taskEmp: '',
   /** Filtros da aba Aparelhos. */
   deviceFilter: { cat: '', status: '' },
   /** Área de Trabalho: 'dev' (lista), 'new' (formulário), 'back1' (voltar ao cargo). */

@@ -51,7 +51,9 @@ ou `localStorage.setItem('tm_backend','local')`.
 - Cada coleção é uma tabela `{id text, data jsonb}` + colunas geradas (`company`, `emp`, `req`, `dev`, `owner`,
   `to_user`…) usadas em índices e permissões. `update()` do app = função `doc_merge` (mescla jsonb);
   `db.call('join_with_invite', {code})` = entrar pelo link de convite; `claim_task` = assumir tarefa aberta;
-  `username_available` / `email_for_username` = nome de usuário (RPCs validadas no servidor).
+  `username_available` / `email_for_username` = nome de usuário (RPCs validadas no servidor);
+  `add_device_log` = anotação no log do aparelho por qualquer membro (o solicitante só acrescenta essa linha,
+  "Anotação de <nome>: …", montada no banco).
 - Login: Supabase Auth (`profiles.id = auth.uid()`); a coleção `cred` só existe no modo local.
   **Confirmação de e-mail ligada**: o signUp envia `{name, username}` nos metadados e o gatilho `handle_new_user`
   (em `auth.users`) cria o perfil (username repetido desfaz o cadastro). Sem sessão até confirmar: o app mostra
@@ -191,7 +193,12 @@ já confirmadas, sem enviar e-mail, e para limpar tudo no final).
   `findSlot`/`fitsAt` pulam, a agenda mostra "Feriado …: nome" e `requeueHolidayTasks()` reagenda as tarefas que
   caírem nele; ponto facultativo (F) só aparece como aviso. Só o admin muda o endereço (aba Empresa; `guard_company`).
 - O funcionário define o horário de trabalho (entrada, saída e almoço) em Menu → "Horário de trabalho e folgas"
-  (validação: entrada < almoço início < almoço fim < saída).
+  (validação: entrada < almoço início < almoço fim < saída). Caixa **"Não tenho horário fixo de almoço"**
+  (`profiles.noBreak`): `breakOf()` fica vazio e a Agenda (dia de hoje, própria) mostra **"Iniciar intervalo"**
+  (`openBreakDialog()`: nome — Almoço/Café/Saída rápida ou livre — e duração) → `startBreak()` grava em `off`
+  `{s, e, note, brk:1}`, pausa a tarefa em andamento (o que falta vai para logo depois do intervalo) e empurra as
+  agendadas que colidirem, na mesma ordem. "Encerrar intervalo" (`endBreak()`) corta o intervalo agora.
+  Intervalos não aparecem na lista de folgas; a Equipe mostra "Em intervalo (nome) até hh:mm"
 - **Ausente hoje** (Horário de trabalho e folgas → "Marcar hoje como ausente", com confirmação): `markAbsentToday()`
   grava uma folga só do dia de hoje (`off` com `note:'Ausente'`) e leva as tarefas **agendadas** de hoje para o dia
   seguinte (`want` = amanhã; `placeByPriority`, pulando folgas/feriados; sem vaga na semana → pendente, e
@@ -210,11 +217,17 @@ já confirmadas, sem enviar e-mail, e para limpar tudo no final).
   Excluir (quem cadastrou ou o admin) pede confirmação (`openDeviceDeleteConfirm()`, `#dx_ok`).
 - O funcionário organiza os aparelhos na Área de Trabalho arrastando (mouse: cartão inteiro; toque: alça ⠿):
   borda de outro aparelho = reordena; meio = cria grupo (ou entra no grupo dele); fora dos grupos = solta.
+- O solicitante pode **registrar no log** do aparelho (janela do aparelho → "Registrar no log", `#rl_t`/`data-rlg`,
+  `addDeviceNoteAsMember()` → RPC `add_device_log`); a anotação aparece no histórico para todos. Não muda status/dados.
 - Na aba Aparelhos do **solicitante**, os aparelhos de todos aparecem agrupados por categoria; ele só pode
   arrastar as categorias para reordenar (sem mover aparelhos nem desfazer grupos). A ordem é pessoal:
   `profiles/<id>.devCatOrder = [categoria…]` (`requesterCategoryOrder()` / `moveCategory()` em `js/domain/layout.js`).
-- Solicitante só enxerga: agenda (outros horários aparecem como "Ocupado"; o admin vê tudo), Equipe, Aparelhos
-  (somente leitura).
+- Solicitante enxerga: agenda (de qualquer funcionário, **completa**: todas as tarefas agendadas/em andamento/
+  concluídas, de qualquer solicitante, e o painel "Em andamento" — só o funcionário mexe nela), Equipe, Aparelhos
+  (leitura + anotação no log). As abas Tarefas/Histórico continuam individuais (só as que a pessoa pediu/executa).
+- Aba Tarefas › Ativas: as tarefas da pessoa + as abertas que ela pode assumir, com filtros **"Criada por"**
+  (`ui.taskReq`, `#tf_r`) e **"Vinculada a"** (`ui.taskEmp`, `#tf_e`; `'__none'` = sem usuário vinculado). As sem
+  usuário vinculado (abertas para a equipe) ficam no final, sob "Sem usuário vinculado".
 - Ninguém é notificado das próprias ações (`notify()` ignora o próprio usuário).
 
 ## Convenções do código

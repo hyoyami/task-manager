@@ -144,6 +144,17 @@
       save();
       emit();
     },
+    // Mesmo efeito da função add_device_log do Supabase (anotação no log, com o nome de quem escreveu).
+    add_device_log: async function (args) {
+      var me = store['profiles/' + currentAid];
+      var d = store['devices/' + args.dev_id];
+      if (!me || me.status !== 'active' || !d || d.company !== me.company) throw new Error('Aparelho não encontrado.');
+      var txt = String(args.txt || '').trim().slice(0, 1000);
+      if (!txt) throw new Error('Escreva o que aconteceu.');
+      var entry = { t: Date.now(), x: 'Anotação de ' + (me.name || 'Usuário') + ': ' + txt };
+      await docRef('devices/' + args.dev_id).update({ log: (d.log || []).concat([entry]) });
+      return entry;
+    },
     // Mesmas verificações da função claim_task do Supabase.
     claim_task: async function (args) {
       var t = store['tasks/' + args.task_id];

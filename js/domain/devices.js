@@ -122,6 +122,16 @@ async function deleteDevice(id) {
   if (Array.isArray(state.me?.ws?.layout)) await saveLayout(myLayoutCopy());
 }
 
+/**
+ * Anotação no log por quem não altera aparelhos (solicitante): função do banco que só acrescenta a
+ * linha "Anotação de <nome>: <texto>", visível para todos no histórico do aparelho.
+ */
+async function addDeviceNoteAsMember(id, text) {
+  const entry = await state.db.call('add_device_log', { dev_id: id, txt: text });
+  const old = state.devices[id];
+  if (old && entry) state.devices[id] = { ...old, log: [...(old.log || []), entry] }; // na hora, antes do tempo real
+}
+
 /** Acrescenta uma linha ao log do aparelho (e aplica `patch`, ex.: status). */
 async function addDeviceLog(id, text, patch = {}) {
   const old = state.devices[id];

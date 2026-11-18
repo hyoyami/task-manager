@@ -29,7 +29,12 @@ function currentWeek() {
 const isWeeklyOff = (profile, ms) => (profile.wk || []).includes(new Date(ms).getDay());
 
 /** Intervalo de almoço do dia. */
-const breakOf = (profile, day) => ({ s: atTime(day, profile.bs), e: atTime(day, profile.be) });
+/**
+ * Intervalo de almoço fixo do dia. Com `noBreak` (sem almoço fixo — o funcionário usa "Iniciar intervalo"
+ * na agenda), devolve um intervalo vazio.
+ */
+const breakOf = (profile, day) => (profile.noBreak ? { s: day, e: day }
+  : { s: atTime(day, profile.bs), e: atTime(day, profile.be) });
 
 /** Horários já ocupados por tarefas do funcionário (exceto `exceptId`). */
 function busyIntervals(emp, exceptId, statuses = OCCUPYING) {
@@ -115,6 +120,7 @@ function employeeStatus(id) {
   const running = allTasks().find((t) => t.emp === id && t.status === 'andamento');
   if (running) return { k: 'busy', x: 'Executando: ' + running.title };
   const off = (p.off || []).find((o) => now >= o.s && now < o.e);
+  if (off?.brk) return { k: 'off', x: 'Em intervalo' + (off.note ? ' (' + off.note + ')' : '') + ' até ' + fmtTime(off.e) };
   if (off) return { k: 'off', x: 'De folga' + (off.note ? ' (' + off.note + ')' : '') + ' até ' + fmtDay(off.e - 1) };
   if (isWeeklyOff(p, now)) return { k: 'off', x: 'Folga semanal' };
   if (isHolidayOff(now)) return { k: 'off', x: holidayText(holidayOn(now)) };
