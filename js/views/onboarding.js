@@ -34,6 +34,8 @@ function viewOnboarding() {
     + '<h2 class="auth-title">Cadastrar minha empresa</h2>'
     + '<p class="muted auth-hint">Você será o <b>administrador</b>: cadastra os aparelhos, aceita os membros e define os papéis.</p>'
     + '<label for="ob_cn">Nome da empresa</label><input type="text" id="ob_cn" maxlength="60" placeholder="Ex.: Acme Ltda.">'
+    + addressFields('ob')
+    + '<p class="muted auth-hint">Pelo endereço, a agenda já marca os feriados nacionais, estaduais e municipais da cidade.</p>'
     + '<button class="primary btn-lg block" id="ob_create">Criar empresa</button></div>';
 
   // Sem empresas na lista, só faz sentido cadastrar a sua (ou usar um convite).

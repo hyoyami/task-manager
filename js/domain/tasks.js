@@ -377,6 +377,49 @@ async function applyProposal() {
   ui.proposal = null;
 }
 
+// ---------- Ausência no dia ----------
+/** O funcionário está marcado como ausente (folga cobrindo o dia todo) no dia `day`? */
+const isAbsentOn = (profile, day) => (profile.off || []).some((o) => o.s <= day && o.e >= addDays(day, 1));
+
+/** Agendadas do usuário logado no dia `day`. */
+const scheduledOnDay = (day) => allTasks().filter((t) => t.emp === state.uid && t.status === 'agendada'
+  && t.start >= day && t.start < addDays(day, 1));
+
+/**
+ * Marca o dia de hoje como ausente (folga só desse dia) e leva as tarefas agendadas para hoje
+ * para o dia seguinte (o primeiro horário livre a partir dele, pela urgência; pula folgas e feriados).
+ * Devolve { moved, pending }: quantas foram reagendadas e quantas ficaram pendentes (sem vaga na semana).
+ */
+async function markAbsentToday() {
+  const day = startOfDay(Date.now());
+  const next = addDays(day, 1);
+  const label = new Date(day).toLocaleDateString('pt-BR');
+  const p = profileOf(state.uid);
+  if (isAbsentOn(p, day)) return { moved: 0, pending: 0, already: true };
+  const hit = scheduledOnDay(day).sort(byPriority((t) => t.start));
+  await patchMyProfile({ off: [...(p.off || []), { s: day, e: next, note: 'Ausente' }] });
+  for (const t of hit) {
+    await commitTask(t.id, { status: 'pendente', start: null, want: next }, 'Funcionário ausente em ' + label + ': vai para o dia seguinte');
+  }
+  let moved = 0;
+  for (const t of hit) {
+    const placed = await placeByPriority(state.tasks[t.id], (s) => 'Reagendada (ausência em ' + label + '): ' + fmtDayTime(s),
+      (s) => 'Tarefa ' + quote(t) + ' reagendada para ' + fmtDayTime(s) + ' (' + nameOf(state.uid) + ' ausente em ' + label + ')');
+    if (placed) moved++;
+    else notify(t.req, 'Tarefa ' + quote(t) + ' ficou pendente: ' + nameOf(state.uid) + ' está ausente e não há horário livre nesta semana');
+  }
+  return { moved, pending: hit.length - moved };
+}
+
+/** Na virada da semana (e ao abrir o sistema), as pendentes do funcionário entram na agenda nova. */
+let lastWeekScheduled = null;
+async function scheduleNewWeek() {
+  const key = currentWeek().s;
+  if (!state.uid || lastWeekScheduled === key || !executes(state.me)) return;
+  lastWeekScheduled = key;
+  if (allTasks().some((t) => t.emp === state.uid && t.status === 'pendente' && t.dur)) await scheduleWaiting(state.uid);
+}
+
 /** Devolve para "pendente" as agendadas que caíram em folga e reagenda. */
 async function requeueForTimeOff(isBlocked, reason) {
   const hit = allTasks().filter((t) => t.emp === state.uid && t.status === 'agendada' && isBlocked(t));

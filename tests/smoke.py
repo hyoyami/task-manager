@@ -22,6 +22,13 @@ with sync_playwright() as p:
     pg.click("#a_go")
     pg.wait_for_selector("#ob_cn")  # tela de entrada na empresa
     pg.fill("#ob_cn", "Empresa Teste")
+    # CEP: ViaCEP simulado (o teste não depende da internet); feriados indisponíveis não atrapalham.
+    pg.route("**/viacep.com.br/ws/**", lambda r: r.fulfill(json={"cep": "01001-000", "logradouro": "Praça da Sé",
+             "bairro": "Sé", "localidade": "São Paulo", "uf": "SP", "ibge": "3550308"}))
+    pg.route("**/{cdn.jsdelivr.net/gh,brasilapi.com.br}/**", lambda r: r.fulfill(status=503, body=""))
+    pg.fill("#ob_cep", "01001000")
+    pg.wait_for_function("document.querySelector('#ob_cid').value !== ''")
+    pg.fill("#ob_num", "1")
     pg.click("#ob_create")
     pg.wait_for_selector("#cs_done")  # etapa "Aparelhos da empresa"
     pg.check("#cs_skip")

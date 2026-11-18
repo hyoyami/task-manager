@@ -41,7 +41,7 @@ function findSlot(profile, busy, dur, from) {
   from = Math.ceil(from / step) * step;
   const need = dur * MIN;
   for (let day = startOfDay(from); day < currentWeek().e; day = addDays(day, 1)) {
-    if (isWeeklyOff(profile, day)) continue;
+    if (isWeeklyOff(profile, day) || isHolidayOff(day)) continue;
     const ws = atTime(day, profile.start);
     const we = atTime(day, profile.end);
     const blocks = [...busy, ...(profile.off || []), breakOf(profile, day)]
@@ -57,13 +57,23 @@ function findSlot(profile, busy, dur, from) {
   return null;
 }
 
+/**
+ * `ms` está fora do expediente do perfil? (antes da entrada, depois da saída, folga semanal,
+ * folga/ausência ou feriado oficial). O intervalo de almoço não conta como fora do expediente.
+ */
+function isOutsideWorkHours(profile, ms) {
+  const day = startOfDay(ms);
+  return ms < atTime(day, profile.start) || ms >= atTime(day, profile.end) || isWeeklyOff(profile, ms)
+    || isHolidayOff(ms) || (profile.off || []).some((o) => ms >= o.s && ms < o.e);
+}
+
 /** A tarefa cabe começando em `start` (arrastar/tocar num horário)? */
 function fitsAt(task, start) {
   const p = profileOf(task.emp);
   const day = startOfDay(start);
   const end = start + task.dur * MIN;
   if (start < atTime(day, p.start) || end > atTime(day, p.end)) return false;
-  if (start < Date.now() - SLOT_ROUND * MIN || isWeeklyOff(p, start)) return false;
+  if (start < Date.now() - SLOT_ROUND * MIN || isWeeklyOff(p, start) || isHolidayOff(start)) return false;
   const blocks = [...busyIntervals(task.emp, task.id), ...(p.off || []), breakOf(p, day)];
   return !blocks.some((b) => start < b.e && end > b.s);
 }
@@ -101,6 +111,7 @@ function employeeStatus(id) {
   const off = (p.off || []).find((o) => now >= o.s && now < o.e);
   if (off) return { k: 'off', x: 'De folga' + (off.note ? ' (' + off.note + ')' : '') + ' até ' + fmtDay(off.e - 1) };
   if (isWeeklyOff(p, now)) return { k: 'off', x: 'Folga semanal' };
+  if (isHolidayOff(now)) return { k: 'off', x: holidayText(holidayOn(now)) };
   if (now < atTime(today, p.start) || now >= atTime(today, p.end)) {
     return { k: 'off', x: 'Fora do expediente (' + p.start + '–' + p.end + ')' };
   }

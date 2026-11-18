@@ -13,6 +13,8 @@ async function boot() {
   setInterval(() => {
     if (!state.me) return;
     activateDueTasks(); // manutenções periódicas cuja semana chegou
+    syncHolidays(); // feriados da cidade em dia e agenda fora deles
+    scheduleNewWeek(); // semana nova: pendentes (ex.: de uma ausência no fim da semana) entram na agenda
     // Equipe: disponibilidade "agora"; Agenda: tempo decorrido/restante da tarefa em andamento.
     if (ui.tab === 'equipe' || (ui.tab === 'agenda' && allTasks().some((t) => t.status === 'andamento'))) render();
   }, TEAM_REFRESH_MS);

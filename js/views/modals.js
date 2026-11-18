@@ -220,6 +220,39 @@ function openGroupRename(groupId, isNew = false) {
   setTimeout(() => { const input = $('#gr_n'); input?.focus(); input?.select(); }, 50);
 }
 
+/** Iniciar fora do expediente: só com confirmação (a tarefa entra na agenda de hoje, fora do horário). */
+function openStartOutsideHours(id) {
+  const t = state.tasks[id];
+  if (!t) return;
+  const p = profileOf(t.emp);
+  ui.modal.startTaskId = id;
+  openModal('<h2>Iniciar fora do expediente?</h2>'
+    + '<p>Seu horário de trabalho é <b>' + esc(p.start) + '–' + esc(p.end) + '</b> e agora são <b>' + fmtTime(Date.now()) + '</b>'
+    + (isOutsideWorkHours({ ...p, start: '00:00', end: '23:59' }, Date.now()) ? ' (dia de folga ou feriado)' : '') + '.</p>'
+    + '<div class="card prio-' + t.prio + '"><b>' + esc(t.title) + '</b>'
+    + '<div class="muted">' + (t.start ? 'Agendada para ' + fmtDayTime(t.start) : 'Sem horário') + when(t.dur, ' · ' + t.dur + ' min') + '</div></div>'
+    + '<p class="muted">Se iniciar agora, ela sai desse horário e entra na agenda de hoje, fora do expediente.</p>'
+    + '<div class="row between mt-12"><button id="dn_no">Cancelar</button>'
+    + '<button class="primary" id="so_ok">Iniciar agora</button></div>');
+}
+
+// ---------- Ausência ----------
+function openAbsentConfirm() {
+  const day = startOfDay(Date.now());
+  const list = scheduledOnDay(day).sort((a, b) => a.start - b.start);
+  const running = allTasks().filter((t) => t.emp === state.uid && STARTED.includes(t.status));
+  openModal('<h2>Marcar hoje como ausente?</h2>'
+    + '<p>Hoje, <b>' + esc(new Date(day).toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' }))
+    + '</b>, ficará como <b>ausente</b> na sua agenda. Só este dia.</p>'
+    + (list.length ? '<p class="muted">Estas tarefas vão para o dia seguinte (primeiro horário livre, pela urgência):</p>'
+      + '<div class="history">' + each(list, (t, i) => when(i, '<br>') + fmtTime(t.start) + ' — ' + esc(t.title)) + '</div>'
+      : '<p class="muted">Você não tem tarefas agendadas para hoje.</p>')
+    + when(running.length, '<p class="muted">Tarefas já iniciadas (em andamento ou pausadas) não são movidas.</p>')
+    + '<p class="muted">Quem pediu as tarefas é avisado do novo horário.</p>'
+    + '<div class="row between mt-12"><button id="dn_no">Cancelar</button>'
+    + '<button class="primary delete-solid" id="ab_ok">Sim, estou ausente hoje</button></div>');
+}
+
 // ---------- Exclusões (irreversíveis) ----------
 function openDeleteAccount() {
   openModal('<h2>Excluir minha conta</h2>'

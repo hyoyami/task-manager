@@ -61,6 +61,22 @@ function workHoursCard(p) {
     + '<p><button class="primary" id="wh_go">Salvar horário</button></p></div>';
 }
 
+/** "Ausente hoje": folga só do dia de hoje; as tarefas de hoje vão para o dia seguinte. */
+function absentCard(p) {
+  const day = startOfDay(Date.now());
+  const today = new Date(day).toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit' });
+  if (isAbsentOn(p, day)) {
+    return '<div class="card"><b>Ausente hoje</b><p class="muted mb-0">Você está marcado como <b>ausente</b> hoje (' + esc(today)
+      + '). Para desfazer, remova a folga "Ausente" na lista abaixo.</p></div>';
+  }
+  const n = scheduledOnDay(day).length;
+  return '<div class="card"><b>Ausente hoje</b>'
+    + '<p class="muted">Não vai trabalhar hoje (' + esc(today) + ')? Marque o dia como ausente: vale só para hoje, e '
+    + (n ? 'as <b>' + plural(n, 'tarefa agendada', 'tarefas agendadas') + '</b> para hoje vão' : 'as tarefas agendadas para hoje iriam')
+    + ' para o dia seguinte.</p>'
+    + '<p class="mb-0"><button class="danger" id="ab_open">Marcar hoje como ausente</button></p></div>';
+}
+
 function viewTimeOff() {
   const p = profileOf(state.uid);
   return '<h1>Horário de trabalho e folgas</h1>' + workHoursCard(p)
@@ -69,6 +85,7 @@ function viewTimeOff() {
     + each(WEEKDAYS_SHORT, (n, i) => '<label class="check day"><input type="checkbox" class="wk" value="' + i + '"'
       + when((p.wk || []).includes(i), ' checked') + '>' + n + '</label>')
     + '</div><p><button class="primary" id="wk_go">Salvar folga semanal</button></p></div>'
+    + absentCard(p)
     + '<h2>Folgas pontuais</h2><div class="card"><div class="row">'
     + '<div><label>De</label><input type="date" id="o_s"></div><div><label>Até</label><input type="date" id="o_e"></div></div>'
     + '<label>Motivo</label><input type="text" id="o_n"><p><button class="small" id="o_go">Adicionar</button></p>'

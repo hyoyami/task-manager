@@ -56,6 +56,53 @@ function cargoCard([key, cargo]) {
     + '</div></div>';
 }
 
+/**
+ * Campos de endereço (ids <prefixo>_cep/_num/_rua/_bai/_comp/_cid/_uf). Ao digitar o CEP, rua, bairro, cidade e UF
+ * vêm do ViaCEP (cidade/UF ficam travadas: definem os feriados); número e complemento a pessoa preenche.
+ */
+function addressFields(p, a = {}) {
+  const field = (id, label, value, extra = '') => '<div><label for="' + p + '_' + id + '">' + label + '</label>'
+    + '<input type="text" id="' + p + '_' + id + '" value="' + esc(value || '') + '"' + extra + '></div>';
+  return '<div class="grid-2">'
+    + field('cep', 'CEP', a.cep, ' class="cep-input" inputmode="numeric" maxlength="9" placeholder="00000-000" autocomplete="postal-code"')
+    + field('num', 'Número', a.num, ' maxlength="10" placeholder="Ex.: 120"') + '</div>'
+    + '<p class="muted cep-msg" id="' + p + '_cepm">' + (a.ibge ? '' : 'Digite o CEP: rua, bairro e cidade são preenchidos sozinhos.') + '</p>'
+    + field('rua', 'Rua', a.rua, ' maxlength="120" autocomplete="address-line1"')
+    + '<div class="grid-2">' + field('bai', 'Bairro', a.bairro, ' maxlength="80"') + field('comp', 'Complemento', a.comp, ' maxlength="60" placeholder="Opcional"') + '</div>'
+    + '<div class="grid-2">' + field('cid', 'Cidade', a.cidade, ' readonly tabindex="-1"') + field('uf', 'UF', a.uf, ' readonly tabindex="-1"') + '</div>';
+}
+
+/** Lê os campos de endereço: { addr } ou { error }. A cidade (código IBGE) vem da consulta do CEP. */
+function readAddress(p, current = null) {
+  const cep = formatCep($('#' + p + '_cep')?.value);
+  const found = ui.cepLookup[p];
+  const base = found && found.cep === cep ? found : current && current.cep === cep ? current : null;
+  if (cep.length !== 9) return { error: 'Informe o CEP da empresa.' };
+  if (!base?.ibge) return { error: 'CEP não encontrado. Confira o número.' };
+  const num = $('#' + p + '_num').value.trim();
+  if (!num) return { error: 'Informe o número do endereço.' };
+  return { addr: { cep, rua: $('#' + p + '_rua').value.trim(), num, comp: $('#' + p + '_comp').value.trim(),
+    bairro: $('#' + p + '_bai').value.trim(), cidade: base.cidade, uf: base.uf, ibge: base.ibge } };
+}
+
+/** Cartão de endereço + feriados da cidade (aba Empresa). */
+function addressCard(c) {
+  const a = c.addr || {};
+  const next = upcomingHolidays(6);
+  const h = c.holidays;
+  return '<h2>Endereço e feriados</h2><div class="card">'
+    + when(!a.ibge, '<p class="error mb-0">Cadastre o CEP para a agenda marcar os feriados nacionais, estaduais e municipais da cidade.</p>')
+    + addressFields('adm', a)
+    + '<p><button class="primary" id="adm_addr">Salvar endereço</button></p>'
+    + (a.ibge ? '<hr class="card-sep"><div class="row between"><b>Feriados de ' + esc(a.cidade) + '/' + esc(a.uf) + '</b>'
+      + '<button class="small" id="adm_hol">Atualizar feriados</button></div>'
+      + '<p class="muted">Feriados oficiais viram dia sem expediente na agenda de todos; pontos facultativos só aparecem como aviso.'
+      + (h?.at ? ' Atualizado ' + timeAgo(h.at) + '.' : '') + '</p>'
+      + (next.length ? '<div class="history">' + each(next, (x, i) => when(i, '<br>') + '<b>' + new Date(x.d + 'T00:00').toLocaleDateString('pt-BR')
+        + '</b> — ' + esc(holidayText(x))) + '</div>' : '<p class="muted">Carregando feriados…</p>') : '')
+    + '</div>';
+}
+
 /** Quem pode excluir a categoria: o admin sempre; o funcionário só se ela não tiver aparelhos. */
 const canDeleteCategory = (name) => isAdmin() || !Object.values(state.devices).some((d) => d.area === name);
 
@@ -83,6 +130,7 @@ function viewCompany() {
     + '<div class="card"><label for="adm_name">Nome da empresa</label>'
     + '<div class="row nowrap"><input type="text" id="adm_name" class="grow" maxlength="60" value="' + esc(c.name) + '">'
     + '<button class="primary" id="adm_save">Salvar</button></div></div>'
+    + addressCard(c)
 
     + '<h2>Pedidos de entrada' + when(requests.length, ' <span class="badge">' + requests.length + '</span>') + '</h2>'
     + (each(requests, joinRequestRow) || emptyCard('Nenhum pedido aguardando.'))

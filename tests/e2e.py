@@ -35,6 +35,47 @@ def ms(h, m=0, day=11):
     return int(datetime(2026, 11, day, h, m, tzinfo=TZ).timestamp() * 1000)
 
 
+# ---------- APIs externas simuladas (CEP e feriados), para o teste não depender da internet ----------
+CEPS = {
+    "01001000": {"cep": "01001-000", "logradouro": "Praça da Sé", "bairro": "Sé", "localidade": "São Paulo", "uf": "SP", "ibge": "3550308"},
+    "20040002": {"cep": "20040-002", "logradouro": "Rua da Assembleia", "bairro": "Centro", "localidade": "Rio de Janeiro", "uf": "RJ", "ibge": "3304557"},
+}
+H = lambda d, n, t, uf=None, ibge=None: {"data": d, "nome": n, "tipo": t, "descricao": "", "uf": uf, "codigo_ibge": ibge}
+HOLIDAYS_2026 = {
+    "nacional": [H("01/01/2026", "Ano Novo", "NACIONAL"), H("15/11/2026", "Proclamação da República", "NACIONAL"),
+                 H("20/11/2026", "Consciência Negra", "NACIONAL"), H("25/12/2026", "Natal", "NACIONAL")],
+    "estadual": [H("09/07/2026", "Revolução Constitucionalista", "ESTADUAL", "SP"), H("23/04/2026", "São Jorge", "ESTADUAL", "RJ")],
+    "municipal": [H("25/01/2026", "Aniversário da Cidade", "MUNICIPAL", "SP", 3550308),
+                  H("12/11/2026", "Feriado de Teste", "MUNICIPAL", "RJ", 3304557),
+                  H("04/06/2026", "Corpus Christi", "MUNICIPAL", "RJ", 3304557)],
+    "facultativo": [H("13/11/2026", "Dia do Ponto Facultativo", "FACULTATIVO", ""),
+                    H("14/12/2026", "Aniversário de Outra Cidade", "FACULTATIVO", "SP")],
+}
+BRASILAPI_2027 = [{"date": "2027-01-01", "name": "Confraternização mundial", "type": "national"},
+                  {"date": "2027-02-09", "name": "Carnaval", "type": "national"}]
+
+
+def mock_apis(page):
+    def viacep(route):
+        cep = route.request.url.split("/ws/")[1].split("/")[0]
+        route.fulfill(json=CEPS.get(cep, {"erro": "true"}), headers={"Access-Control-Allow-Origin": "*"})
+
+    def dataset(route):
+        kind, _, year = route.request.url.split("/dados/feriados/")[1].replace(".json", "").split("/")
+        if year == "2026":
+            route.fulfill(json=HOLIDAYS_2026[kind], headers={"Access-Control-Allow-Origin": "*"})
+        else:
+            route.fulfill(status=404, body="Not found", headers={"Access-Control-Allow-Origin": "*"})
+
+    def brasilapi(route):
+        year = route.request.url.rstrip("/").split("/")[-1]
+        route.fulfill(json=BRASILAPI_2027 if year == "2027" else [], headers={"Access-Control-Allow-Origin": "*"})
+
+    page.route("**/viacep.com.br/ws/**", viacep)
+    page.route("**/cdn.jsdelivr.net/gh/joaopbini/feriados-brasil@master/dados/feriados/**", dataset)
+    page.route("**/brasilapi.com.br/api/feriados/**", brasilapi)
+
+
 class Run:
     def __init__(self, page, shots_dir=None):
         self.pg = page
@@ -42,8 +83,10 @@ class Run:
         self.shots = []
         self.errors = []
         page.on("pageerror", lambda e: self.errors.append(str(e)))
-        page.on("console", lambda m: m.type == "error" and self.errors.append(m.text))
+        # 404 de um ano de feriados ainda não publicado é esperado (o app usa a BrasilAPI no lugar).
+        page.on("console", lambda m: m.type == "error" and "status of 404" not in m.text and self.errors.append(m.text))
         page.on("dialog", lambda d: d.accept())  # confirm() de exclusões
+        mock_apis(page)
 
     def wait(self, t=120):
         self.pg.wait_for_timeout(t)
@@ -58,6 +101,13 @@ class Run:
         return txt
 
     def click(self, sel):
+        # Botões de tarefa: o app ignora um 2º toque no mesmo cartão em < 0,7 s (proteção contra toque duplo).
+        if "data-a=" in sel or "data-claim=" in sel or "data-d=" in sel:
+            import time
+            gap = time.monotonic() - getattr(self, "_last_task_click", 0)
+            if gap < 0.75:
+                self.pg.wait_for_timeout(int((0.75 - gap) * 1000))
+            self._last_task_click = time.monotonic()
         self.pg.click(sel)
         self.wait()
 
@@ -83,9 +133,16 @@ class Run:
         pg.wait_for_selector("nav button, #ob_cn, #ob_cancel")
         self.wait(250)
 
-    def create_company(self, name, devices=()):
+    def fill_address(self, prefix="ob", cep="01001000", num="100"):
+        """CEP → rua/bairro/cidade/UF preenchidos sozinhos; o número a pessoa digita."""
+        self.pg.fill(f"#{prefix}_cep", cep)
+        self.pg.wait_for_function(f"document.querySelector('#{prefix}_cid').value !== ''")
+        self.pg.fill(f"#{prefix}_num", num)
+
+    def create_company(self, name, devices=(), cep="01001000"):
         """Cria a empresa e passa pela etapa "Aparelhos da empresa" (cadastrando `devices` ou pulando)."""
         self.pg.fill("#ob_cn", name)
+        self.fill_address(cep=cep)
         self.click("#ob_create")
         self.pg.wait_for_selector("#cs_done")
         for area, dev_name, ip in devices:
@@ -421,6 +478,9 @@ def main():
         n += deletion_flow(b, shots_dir)
         n += recurrence_flow(b, shots_dir)
         n += email_confirmation_flow(b, shots_dir)
+        n += holiday_flow(b, shots_dir)
+        n += absent_flow(b, shots_dir)
+        n += after_hours_flow(b, shots_dir)
         print(f"OK: {len(r.shots) + n} telas verificadas, sem erros de JavaScript.")
         b.close()
 
@@ -541,6 +601,9 @@ def company_flow(browser, shots_dir):
     # Administrador cria a empresa e cadastra os aparelhos na etapa "Aparelhos da empresa".
     r.signup("Gil", "gil@teste.com")
     pg.fill("#ob_cn", "Alfa")
+    r.click("#ob_create")
+    assert "CEP" in toast(r), toast(r)  # endereço obrigatório
+    r.fill_address()
     r.click("#ob_create")
     pg.wait_for_selector("#cs_done")
     assert pg.locator("nav button").count() == 0          # abas só depois da configuração
@@ -1011,6 +1074,199 @@ def recurrence_flow(browser, shots_dir):
     r.click('[data-agtoday="1"]')
     assert pg.locator(".slot[data-t]").count() > 0  # hoje: horários livres clicáveis
     pg.set_viewport_size({"width": 420, "height": 1400})
+    assert not r.errors, r.errors
+    ctx.close()
+    return len(r.shots)
+
+
+def holiday_flow(browser, shots_dir):
+    """Endereço pelo CEP e feriados da cidade na agenda (oficiais sem expediente; facultativo só aviso)."""
+    ctx = browser.new_context(viewport={"width": 420, "height": 1400}, timezone_id="America/Sao_Paulo", locale="pt-BR")
+    pg = ctx.new_page()
+    pg.clock.set_fixed_time(NOW)
+    r = Run(pg, shots_dir / "feriados" if shots_dir else None)
+    if r.shots_dir:
+        r.shots_dir.mkdir(exist_ok=True)
+    pg.goto(INDEX)
+    r.signup("Bia", "bia@teste.com")
+    pg.fill("#ob_cn", "Carioca Ltda")
+    pg.fill("#ob_cep", "99999999")
+    pg.wait_for_function("document.querySelector('#ob_cepm').textContent.includes('não encontrado')")
+    pg.fill("#ob_cep", "20040002")
+    pg.wait_for_function("document.querySelector('#ob_cid').value === 'Rio de Janeiro'")
+    assert pg.input_value("#ob_rua") == "Rua da Assembleia" and pg.input_value("#ob_bai") == "Centro"
+    assert pg.input_value("#ob_uf") == "RJ" and pg.input_value("#ob_num") == ""  # número não é preenchido
+    assert pg.input_value("#ob_cep") == "20040-002"
+    pg.fill("#ob_num", "10")
+    r.shot("empresa-endereco")
+    r.click("#ob_create")
+    pg.wait_for_selector("#cs_done")
+    pg.check("#cs_skip")
+    r.click("#cs_done")
+    pg.wait_for_function("!!state.company.holidays?.years?.[2027]")
+    addr = pg.evaluate("state.company.addr")
+    assert addr == {"cep": "20040-002", "rua": "Rua da Assembleia", "num": "10", "comp": "", "bairro": "Centro",
+                    "cidade": "Rio de Janeiro", "uf": "RJ", "ibge": "3304557"}, addr
+    hol = pg.evaluate("state.company.holidays.years")
+    days = {h["d"]: h for h in hol["2026"]}
+    assert days["2026-11-12"] == {"d": "2026-11-12", "n": "Feriado de Teste", "t": "M"}, days
+    assert days["2026-04-23"]["t"] == "E" and "2026-07-09" not in days and "2026-01-25" not in days  # só RJ/Rio
+    assert days["2026-11-13"]["t"] == "F" and "2026-12-14" not in days  # facultativo de outra cidade fica de fora
+    # 2027 ainda sem dados: nacionais pela BrasilAPI (Carnaval = facultativo) + previstos do ano anterior.
+    d27 = {h["d"]: h for h in hol["2027"]}
+    assert d27["2027-01-01"]["t"] == "N" and d27["2027-02-09"]["t"] == "F", d27
+    assert d27["2027-05-27"] == {"d": "2027-05-27", "n": "Corpus Christi", "t": "M", "est": 1}, d27  # Páscoa 2027 + 60
+    assert d27["2027-11-12"]["est"] == 1
+
+    # Agenda: feriado oficial vira dia sem expediente; o facultativo só avisa.
+    assert pg.evaluate("isHolidayOff(%d) && !isHolidayOff(%d)" % (ms(9, 0, 12), ms(9, 0, 13)))
+    assert pg.evaluate("findSlot(profileOf(state.uid), [], 30, %d)" % ms(8, 0, 12)) == ms(8, 0, 13)
+    assert pg.evaluate("fitsAt({ emp: state.uid, dur: 30, id: 'x' }, %d)" % ms(9, 0, 12)) is False
+    r.tab("agenda")
+    r.click('[data-av="semana"]')
+    week = r.shot("feriado-semana")
+    assert "Feriado municipal: Feriado de Teste" in week and "Ponto facultativo: Dia do Ponto Facultativo" in week, week
+    r.click('[data-agday="%d"]' % ms(0, 0, 12))
+    assert "Dia sem expediente" in pg.inner_text(".agenda-main") and pg.locator(".slot[data-t]").count() == 0
+    r.click('[data-day="1"]')
+    assert "dia normal de trabalho" in pg.inner_text(".agenda-main")
+    pg.set_viewport_size({"width": 1280, "height": 900})
+    r.click('[data-av="mes"]')
+    r.shot("feriado-mes-desktop")
+    pg.set_viewport_size({"width": 420, "height": 1400})
+
+    # Tarefa que estava agendada num dia que virou feriado é reagendada.
+    r.click("#nfab")
+    pg.fill("#f_t", "Conferir rede")
+    pg.fill("#f_d", "Teste")
+    pg.check(f'.f_e[value="{pg.evaluate("state.uid")}"]')
+    r.click("#f_go")
+    tid = pg.evaluate("allTasks().find(t => t.title === 'Conferir rede').id")
+    pg.evaluate(f"(async () => {{ await commitTask('{tid}', {{ dur: 30, status: 'agendada', start: {ms(9, 0, 12)} }}, 'teste'); await requeueHolidayTasks(); }})()")
+    r.wait(300)
+    t = pg.evaluate(f"state.tasks['{tid}']")
+    assert t["status"] == "agendada" and not pg.evaluate(f"isHolidayOff({t['start']})"), t
+    assert any("Feriado municipal: Feriado de Teste" in h["x"] for h in t["hist"]), t["hist"]
+
+    # Aba Empresa: endereço editável e próximos feriados.
+    r.tab("empresa")
+    txt = r.shot("empresa-feriados")
+    assert "Feriados de Rio de Janeiro/RJ" in txt and "Feriado de Teste" in txt, txt
+    r.fill_address("adm", "01001000", "5")
+    r.click("#adm_addr")
+    pg.wait_for_function("state.company.holidays.ibge === '3550308'")
+    assert pg.evaluate("isHolidayOff(%d)" % ms(9, 0, 12)) is False  # em São Paulo, 12/11 é dia normal
+    assert not r.errors, r.errors
+    ctx.close()
+    return len(r.shots)
+
+
+def absent_flow(browser, shots_dir):
+    """"Marcar hoje como ausente": confirmação, folga só de hoje e tarefas de hoje no dia seguinte (pela urgência)."""
+    ctx = browser.new_context(viewport={"width": 420, "height": 1400}, timezone_id="America/Sao_Paulo", locale="pt-BR")
+    pg = ctx.new_page()
+    pg.clock.set_fixed_time(NOW)
+    r = Run(pg, shots_dir / "ausente" if shots_dir else None)
+    if r.shots_dir:
+        r.shots_dir.mkdir(exist_ok=True)
+    pg.goto(INDEX)
+    r.signup("Edu", "edu@teste.com")
+    r.create_company("Ausência Ltda")
+    me = pg.evaluate("state.uid")
+
+    def new_task(title, prio):
+        r.click("#nfab")
+        pg.fill("#f_t", title)
+        pg.fill("#f_d", "Teste")
+        pg.select_option("#f_p", prio)
+        pg.check(f'.f_e[value="{me}"]')
+        r.click("#f_go")
+        tid = pg.evaluate(f"allTasks().find(t => t.title === '{title}').id")
+        r.tab("tarefas")
+        pg.select_option(f'.dsel[data-i="{tid}"]', "60")
+        r.wait(200)
+        r.click(f'[data-a="aceitar"][data-i="{tid}"]')
+        return tid
+
+    low = new_task("Organizar arquivo", "baixa")
+    high = new_task("Servidor fora do ar", "alta")
+    task = lambda tid: pg.evaluate(f"state.tasks['{tid}']")
+    assert all(ms(0, 0, 11) <= task(t)["start"] < ms(0, 0, 12) for t in (low, high))  # as duas hoje
+
+    r.menu("folgas")
+    assert "Marcar hoje como ausente" in pg.inner_text("#app") and "2 tarefas agendadas" in pg.inner_text("#app")
+    r.click("#ab_open")
+    modal = r.shot("ausente-confirmar", "#mdb")
+    assert "Marcar hoje como ausente?" in modal and "Servidor fora do ar" in modal and "Organizar arquivo" in modal, modal
+    r.click("#dn_no")  # cancelar não muda nada
+    assert not pg.evaluate("isAbsentOn(profileOf(state.uid), %d)" % ms(0, 0, 11))
+    r.click("#ab_open")
+    r.click("#ab_ok")
+    r.wait(400)
+    assert "2 tarefas reagendadas" in toast(r), toast(r)
+    off = pg.evaluate("state.me.off")
+    assert off == [{"s": ms(0, 0, 11), "e": ms(0, 0, 12), "note": "Ausente"}], off  # só o dia de hoje
+    h, l = task(high), task(low)
+    assert h["status"] == l["status"] == "agendada", (h, l)
+    assert h["start"] == ms(8, 0, 12) and l["start"] == ms(9, 0, 12), (h["start"], l["start"])  # amanhã, urgente primeiro
+    assert any("ausente em 11/11/2026" in x["x"] for x in h["hist"]), h["hist"]
+    txt = r.shot("ausente-marcado")
+    assert "Você está marcado como ausente hoje" in txt, txt
+    r.tab("agenda")
+    assert "Indisponível: Ausente" in pg.inner_text(".agenda-main")
+    assert pg.locator(".slot[data-t]").count() == 0  # hoje não aceita mais tarefas
+    r.tab("equipe")
+    assert "De folga (Ausente)" in pg.inner_text("#app")
+    assert not r.errors, r.errors
+    ctx.close()
+    return len(r.shots)
+
+
+def after_hours_flow(browser, shots_dir):
+    """Depois do expediente: aceitar agenda para o dia seguinte; iniciar hoje só com confirmação; toque duplo ignorado."""
+    ctx = browser.new_context(viewport={"width": 420, "height": 1400}, timezone_id="America/Sao_Paulo", locale="pt-BR")
+    pg = ctx.new_page()
+    pg.clock.set_fixed_time(datetime(2026, 11, 11, 17, 30, tzinfo=TZ))  # expediente 08:00–17:00 já acabou
+    r = Run(pg, shots_dir / "expediente" if shots_dir else None)
+    if r.shots_dir:
+        r.shots_dir.mkdir(exist_ok=True)
+    pg.goto(INDEX)
+    r.signup("Iva", "iva@teste.com")
+    r.create_company("Noturna Ltda")
+    me = pg.evaluate("state.uid")
+    r.click("#nfab")
+    pg.fill("#f_t", "Urgente da noite")
+    pg.fill("#f_d", "Teste")
+    pg.select_option("#f_p", "alta")
+    pg.check(f'.f_e[value="{me}"]')
+    r.click("#f_go")
+    tid = pg.evaluate("allTasks().find(t => t.title === 'Urgente da noite').id")
+    r.tab("tarefas")
+    pg.select_option(f'.dsel[data-i="{tid}"]', "60")
+    r.wait(200)
+    task = lambda: pg.evaluate(f"state.tasks['{tid}']")
+    # Toque duplo: o segundo toque cai no "Iniciar" que aparece no lugar — deve ser ignorado.
+    btn = f'[data-a="aceitar"][data-i="{tid}"]'
+    box = pg.locator(btn).bounding_box()
+    pg.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    r.wait(150)
+    pg.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    r.wait(300)
+    t = task()
+    assert t["status"] == "agendada" and t["start"] == ms(8, 0, 12) and t["dur"] == 60, t  # dia seguinte; 2º toque ignorado
+    assert pg.locator("#md.open").count() == 0
+    # Iniciar agora (fora do expediente) pede confirmação; cancelar mantém amanhã.
+    r.wait(800)
+    r.click(f'[data-a="iniciar"][data-i="{tid}"]')
+    txt = r.shot("iniciar-fora-expediente", "#mdb")
+    assert "Iniciar fora do expediente?" in txt and "08:00–17:00" in txt, txt
+    r.click("#dn_no")
+    assert task()["start"] == ms(8, 0, 12)
+    r.click(f'[data-a="iniciar"][data-i="{tid}"]')
+    r.click("#so_ok")
+    r.wait(300)
+    t = task()
+    assert t["status"] == "andamento" and t["start"] == ms(17, 30, 11), t  # só assim entra hoje, fora do horário
     assert not r.errors, r.errors
     ctx.close()
     return len(r.shots)

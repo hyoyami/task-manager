@@ -161,6 +161,9 @@ def main():
             # Administrador cria a empresa e cadastra um aparelho.
             admin.signup("Adm Teste", ADMIN_EMAIL)
             admin.pg.fill("#ob_cn", "Empresa E2E " + STAMP)
+            admin.pg.fill("#ob_cep", "01001000")  # ViaCEP de verdade
+            admin.pg.wait_for_function("document.querySelector('#ob_cid').value === 'São Paulo'", timeout=15000)
+            admin.pg.fill("#ob_num", "1")
             admin.click("#ob_create")
             admin.pg.wait_for_selector("#cs_done", timeout=15000)
             admin.pg.check("#cs_skip")
@@ -260,6 +263,12 @@ def main():
             assert r.startswith("erro"), r
             r = func.db_call(f"await db.doc('companies/{company}').update({{ cargos: {{}} }})")
             assert r.startswith("erro"), r
+            r = func.db_call(f"await db.doc('companies/{company}').update({{ addr: {{ cep: '00000-000' }} }})")
+            assert r.startswith("erro"), "funcionário não muda o endereço: " + r
+            # Feriados de São Paulo (fontes reais) gravados na empresa; 20/11/2026 é feriado nacional.
+            admin.pg.wait_for_function("!!state.company.holidays?.years?.[2026]", timeout=30000)
+            assert admin.pg.evaluate("holidayOn(new Date(2026, 10, 20).getTime())?.t") == "N"
+            assert admin.pg.evaluate("holidayOn(new Date(2026, 0, 25).getTime())?.n") == "Aniversário da Cidade"
             r = sol.db_call(f"await db.doc('companies/{company}').update({{ probs: {{}} }})")
             assert r.startswith("erro"), r  # solicitante não edita nada da empresa
 
@@ -277,6 +286,9 @@ def main():
             # Outra empresa não enxerga nada desta (nem forçando pela API).
             out.signup("Otto Fora", OUT_EMAIL)
             out.pg.fill("#ob_cn", "Outra E2E " + STAMP)
+            out.pg.fill("#ob_cep", "20040002")
+            out.pg.wait_for_function("document.querySelector('#ob_cid').value === 'Rio de Janeiro'", timeout=15000)
+            out.pg.fill("#ob_num", "1")
             out.click("#ob_create")
             out.pg.wait_for_selector("#cs_done", timeout=15000)
             out.pg.check("#cs_skip")

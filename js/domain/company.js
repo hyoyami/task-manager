@@ -8,7 +8,8 @@
      hidden: [nome]                    categorias de fábrica excluídas,
      probs:  { categoria: [problema] } problemas de manutenção (senão PRESETS),
      probRec: { categoria: { problema: {n, u} } }  aviso periódico padrão do problema (opcional),
-     cargos: { chave: { n, cats: [categoria] } }  funções e as categorias que cada uma vê
+     cargos: { chave: { n, cats: [categoria] } }  funções e as categorias que cada uma vê,
+     addr, holidays                    endereço (CEP) e feriados da cidade — ver domain/holidays.js
    }
    invites/<código> = { company, role, by, created }   link: ?convite=<código>
    profiles/<id>: company, status ('pending' | 'active'), role, ws.cargo
@@ -155,11 +156,12 @@ async function deleteCargo(key) {
 
 // ---------- Entrar numa empresa ----------
 /** Cria a empresa e torna o usuário logado o administrador dela. */
-async function createCompany(name) {
+async function createCompany(name, addr) {
   const ref = newDoc('companies');
   const cargos = companyCargos(null);
   // setup:false → o administrador passa pela etapa "Aparelhos da empresa" antes de entrar no sistema.
-  await ref.set({ id: ref.id, name, admin: state.uid, created: Date.now(), cats: [], hidden: [], probs: {}, cargos, setup: false });
+  await ref.set({ id: ref.id, name, admin: state.uid, created: Date.now(), cats: [], hidden: [], probs: {}, cargos, setup: false,
+    ...(addr ? { addr } : {}) });
   await updateMyProfile({ company: ref.id, status: 'active', role: 'admin' });
 }
 

@@ -44,6 +44,12 @@ const atTime = (day, hhmm) => {
   return d.getTime();
 };
 
+/** "AAAA-MM-DD" do dia de `ms`, no fuso local (chave de feriados e valor de input date). */
+const dateKey = (ms) => {
+  const d = new Date(ms);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+};
+
 /** Converte "AAAA-MM-DD" (input date) para o início desse dia, no fuso local. */
 const parseDateInput = (value) => new Date(value + 'T00:00').getTime();
 

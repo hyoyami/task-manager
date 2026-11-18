@@ -252,7 +252,7 @@ function startSession(aid) {
       usePendingInvite();
     }, onError),
 
-    db.collection('companies').onSnapshot((snap) => { raw.companies = mapOf(snap, true); refresh(); }, onError),
+    db.collection('companies').onSnapshot((snap) => { raw.companies = mapOf(snap, true); refresh(); syncHolidays(); }, onError),
     db.collection('invites').onSnapshot((snap) => { raw.invites = mapOf(snap, true); refresh(); }, onError),
     db.collection('tasks').onSnapshot((snap) => { raw.tasks = mapOf(snap); refresh(); activateDueTasks(); }, onError),
 

@@ -717,3 +717,15 @@ main.wide { max-width: 1180px; }
   .month-dots { display: none; }
   .month-items { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 }
+
+/* ---------- Feriados ---------- */
+.card.holiday { border-left: 4px solid var(--text); background: var(--free); }
+.holiday-note { font-size: 13px; color: var(--muted); border-style: dashed; }
+.cal-hol { font-size: 12px; font-weight: 700; line-height: 1.3; }
+.cal-hol.optional { font-weight: 500; color: var(--muted); }
+.week-day.holiday, .month-day.holiday { background: var(--free); border-style: dashed; }
+.month-day .cal-hol { display: none; }
+.month-day.holiday .month-num { text-decoration: underline; text-underline-offset: 3px; }
+@media (min-width: 900px) {
+  .month-day .cal-hol { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}

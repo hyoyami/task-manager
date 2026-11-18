@@ -146,7 +146,9 @@ async function submitCreateCompany() {
   if (Object.values(state.companies).some((c) => String(c.name).toLowerCase() === name.toLowerCase())) {
     return say('Já existe uma empresa com esse nome.');
   }
-  await createCompany(name);
+  const { addr, error } = readAddress('ob');
+  if (error) return say(error);
+  await createCompany(name, addr);
   say('Empresa criada! Agora cadastre os aparelhos da empresa.');
 }
 
@@ -160,6 +162,65 @@ async function submitJoinRequest() {
 async function cancelJoinRequest() {
   await leaveCompany();
   say('Pedido cancelado.');
+}
+
+async function saveCompanyAddress(btn) {
+  const { addr, error } = readAddress('adm', state.company.addr);
+  if (error) return say(error);
+  btn.disabled = true;
+  try {
+    const cityChanged = addr.ibge !== state.company.addr?.ibge;
+    await updateCompany({ addr });
+    say('Endereço salvo.' + (cityChanged ? ' Buscando os feriados de ' + addr.cidade + '…' : ''));
+    if (cityChanged) await refreshHolidays();
+  } finally {
+    btn.disabled = false;
+    render();
+  }
+}
+
+async function refreshHolidays() {
+  try {
+    await ensureHolidays(true);
+    say('Feriados de ' + state.company.addr.cidade + '/' + state.company.addr.uf + ' atualizados.');
+    await requeueHolidayTasks();
+  } catch (_) {
+    say('Não foi possível buscar os feriados agora. Tente de novo mais tarde.');
+  }
+  render();
+}
+
+/** Ao digitar o CEP (8 dígitos), preenche rua, bairro, cidade e UF pelo ViaCEP. */
+async function onCepInput(input) {
+  const p = input.id.replace(/_cep$/, '');
+  input.value = formatCep(input.value);
+  const msg = $('#' + p + '_cepm');
+  if (onlyDigits(input.value).length !== 8) {
+    ui.cepLookup[p] = null;
+    return;
+  }
+  if (msg) msg.textContent = 'Buscando o CEP…';
+  let found = null;
+  try {
+    found = await lookupCep(input.value);
+  } catch (_) {
+    if (msg) msg.textContent = 'Não foi possível consultar o CEP agora. Verifique a internet.';
+    return;
+  }
+  if (formatCep(input.value) !== found?.cep && found) return; // digitou outro CEP enquanto buscava
+  ui.cepLookup[p] = found;
+  if (!found) {
+    if (msg) msg.textContent = 'CEP não encontrado. Confira o número.';
+    ['rua', 'bai', 'cid', 'uf'].forEach((k) => { const el = $('#' + p + '_' + k); if (el) el.value = ''; });
+    return;
+  }
+  const set = (k, v) => { const el = $('#' + p + '_' + k); if (el) el.value = v; };
+  set('rua', found.rua);
+  set('bai', found.bairro);
+  set('cid', found.cidade);
+  set('uf', found.uf);
+  if (msg) msg.textContent = found.cidade + '/' + found.uf + ' — agora informe o número.';
+  $('#' + p + '_num')?.focus();
 }
 
 async function saveCompanyName() {
@@ -397,6 +458,17 @@ async function addTimeOff() {
   await requeueForTimeOff((t) => off.some((x) => t.start < x.e && taskEnd(t) > x.s), 'indisponibilidade');
 }
 
+async function confirmAbsentToday(btn) {
+  btn.disabled = true;
+  closeModal();
+  const { moved, pending, already } = await markAbsentToday();
+  if (already) say('Você já está marcado como ausente hoje.');
+  else if (!moved && !pending) say('Hoje marcado como ausente.');
+  else say('Hoje marcado como ausente. ' + plural(moved, 'tarefa reagendada', 'tarefas reagendadas') + ' para o dia seguinte'
+    + (pending ? '; ' + plural(pending, 'ficou pendente', 'ficaram pendentes') + ' (sem horário livre nesta semana)' : '') + '.');
+  render();
+}
+
 async function removeTimeOff(index) {
   const off = [...(profileOf(state.uid).off || [])];
   off.splice(+index, 1);
@@ -459,6 +531,8 @@ const ACTIONS_BY_ID = {
   ob_join: submitJoinRequest,
   ob_cancel: cancelJoinRequest,
   adm_save: saveCompanyName,
+  adm_addr: saveCompanyAddress,
+  adm_hol: refreshHolidays,
   adm_inv: generateInvite,
   adm_cg_add: submitCargo,
   // Conta e folgas
@@ -468,6 +542,9 @@ const ACTIONS_BY_ID = {
   pw_go: () => changePassword(),
   wk_go: saveWeeklyOff,
   o_go: addTimeOff,
+  ab_open: openAbsentConfirm,
+  so_ok: async (btn) => { btn.disabled = true; const id = ui.modal.startTaskId; closeModal(); await taskAction(id, 'iniciar'); render(); },
+  ab_ok: confirmAbsentToday,
 };
 
 const ACTIONS_BY_DATA = {
@@ -488,7 +565,13 @@ const ACTIONS_BY_DATA = {
   accx: (v) => { forgetAccount(v); render(); },
   newacc: () => { openMenu(false); return addAnotherAccount(); },
   // Tarefas
-  a: (v, btn) => (v === 'concluir' ? openCompleteTask(btn.dataset.i) : taskAction(btn.dataset.i, v)),
+  a: (v, btn) => {
+    if (v === 'concluir') return openCompleteTask(btn.dataset.i);
+    // Iniciar fora do expediente só com confirmação (senão a tarefa entraria hoje, depois do horário).
+    const t = state.tasks[btn.dataset.i];
+    if (v === 'iniciar' && t && isOutsideWorkHours(profileOf(t.emp), Date.now())) return openStartOutsideHours(t.id);
+    return taskAction(btn.dataset.i, v);
+  },
   d: (v, btn) => changeDuration(btn.dataset.i, +v),
   h: (v) => { ui.openHistory[v] = !ui.openHistory[v]; render(); },
   prop: () => { ui.proposal = buildProposal(ui.agendaEmp); render(); },

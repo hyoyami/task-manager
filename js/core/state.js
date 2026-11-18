@@ -46,6 +46,8 @@ const ui = {
   agendaDay: startOfDay(Date.now()),
   /** Visão da agenda: 'dia' | 'semana' | 'mes'. */
   agendaView: 'dia',
+  /** Resultado da consulta de CEP por formulário (prefixo → endereço do ViaCEP). */
+  cepLookup: {},
   /** Sugestão de reorganização pendente de aprovação: [{task, start}]. */
   proposal: null,
   /** Tarefas com histórico expandido: { [id]: true }. */
@@ -87,6 +89,8 @@ const ui = {
   /** Contexto dos modais. */
   modal: {
     doneTaskId: null,
+    /** Tarefa a iniciar fora do expediente, aguardando confirmação. */
+    startTaskId: null,
     category: null,
     /** Problema em edição (índice na lista da categoria). */
     problemIndex: null,

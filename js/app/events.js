@@ -26,10 +26,31 @@ function onElementClick(target) {
   if (tut) return openTutorial(...splitTutorialKey(tut.dataset.tut));
 }
 
+/**
+ * Toque duplo em botões de tarefa: depois de uma ação o cartão é redesenhado e outro botão
+ * (ex.: "Iniciar") pode aparecer no mesmo lugar do que foi tocado ("Agendar automático").
+ * Um segundo toque logo em seguida é ignorado. (performance.now: não depende do relógio do sistema.)
+ */
+const TASK_ACTION_GUARD_MS = 700;
+let lastTaskAction = null; // { id, at }
+function isDoubleTap(btn) {
+  // Botões de ação do cartão (data-a), ±15 min (data-d) e "aceitar" de tarefa aberta (data-claim).
+  const id = 'a' in btn.dataset || 'd' in btn.dataset ? btn.dataset.i : btn.dataset.claim;
+  if (id === undefined) {
+    lastTaskAction = null; // outro botão no meio: foi intencional
+    return false;
+  }
+  const now = performance.now();
+  if (lastTaskAction && lastTaskAction.id === id && now - lastTaskAction.at < TASK_ACTION_GUARD_MS) return true;
+  lastTaskAction = { id, at: now };
+  return false;
+}
+
 async function onClick(e) {
   const btn = e.target.closest('button');
   try {
     if (!btn) return await onElementClick(e.target);
+    if (isDoubleTap(btn)) return;
     // Tira o foco do campo atual para que render() possa redesenhar a tela.
     const active = document.activeElement;
     if (active && active !== document.body) active.blur?.();
@@ -42,6 +63,7 @@ async function onClick(e) {
 
 async function onChange(e) {
   const x = e.target;
+  lastTaskAction = null; // mexeu num campo (ex.: duração): o próximo toque é intencional
   try {
     if (x.id === 'af_c' || x.id === 'af_s') {
       ui.deviceFilter[x.id === 'af_c' ? 'cat' : 'status'] = x.value;
@@ -106,6 +128,7 @@ function onKeyDown(e) {
 function initEvents() {
   document.addEventListener('click', onClick);
   document.addEventListener('change', onChange);
+  document.addEventListener('input', (e) => { if (e.target.classList?.contains('cep-input')) onCepInput(e.target); });
   document.addEventListener('keydown', onKeyDown);
   // Fundo do modal e da gaveta lateral fecham ao tocar.
   $('#md').addEventListener('click', (e) => { if (e.target.id === 'md') closeModal(); });

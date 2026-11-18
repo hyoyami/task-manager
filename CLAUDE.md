@@ -25,6 +25,7 @@ js/domain/                 regras de negócio, sem HTML:
                            schedule.js (semana, findSlot, fitsAt, disponibilidade),
                            tasks.js (criar/aceitar/iniciar/concluir/reagendar),
                            company.js (empresa, membros, convites, funções, categorias, problemas),
+                           holidays.js (endereço pelo CEP e feriados da cidade),
                            devices.js (aparelhos da empresa, tutoriais),
                            layout.js (ordem e grupos dos aparelhos),
                            auth.js (login, contas salvas, assinaturas onSnapshot)
@@ -76,7 +77,8 @@ já confirmadas, sem enviar e-mail, e para limpar tudo no final).
 ## Modelo de dados (coleções do banco)
 - `companies/<id>` — `{name, admin(uid), created, cats:[{name,icon}] (criadas), hidden:[] (de fábrica excluídas),
   probs:{categoria:[problema]}, probRec:{categoria:{problema:{n,u}}} (aviso periódico padrão do problema),
-  cargos:{chave:{n, cats:[categoria]}}}` (funções e as categorias que cada uma vê).
+  cargos:{chave:{n, cats:[categoria]}}}` (funções e as categorias que cada uma vê),
+  `addr:{cep,rua,num,comp,bairro,cidade,uf,ibge}`, `holidays:{ibge, at, years:{AAAA:[{d:'AAAA-MM-DD', n, t:'N'|'E'|'M'|'F', est?}]}}`.
 - `invites/<código>` — `{company, role:'sol'|'func', by, created}`. Link: `?convite=<código>` (entra direto, ativo).
 - `cred/<id>` — só no modo local: `{salt, hash, aid}` credenciais (PBKDF2 no navegador). `id` = hash do e-mail.
 - `profiles/<aid>` — `{name, role:'admin'|'func'|'sol', company, status:'pending'|'active', requestedAt, email, ck,
@@ -147,6 +149,11 @@ já confirmadas, sem enviar e-mail, e para limpar tudo no final).
   Clicar no cartão fixo (fora dos botões) rola até a tarefa na agenda e a destaca (`focusTaskInAgenda()`).
   Cartões de tarefa: início → previsão de término no topo, linha, título; só a tarefa em andamento tem a borda
   inteira na cor da prioridade (`.card.running`).
+- Encaixe automático nunca usa horário fora do expediente (aceitar depois da saída → primeiro horário do próximo dia
+  de trabalho). **Iniciar fora do expediente** (`isOutsideWorkHours()`: antes da entrada, depois da saída, folga,
+  ausência ou feriado) pede confirmação (`openStartOutsideHours()`, `#so_ok`) — é o único jeito de a tarefa entrar
+  hoje fora do horário. Toque duplo: um 2º toque no mesmo cartão (data-a / data-d / data-claim) em < 0,7 s é
+  ignorado (`isDoubleTap()` em app/events.js), pois o cartão é redesenhado e outro botão ocupa o mesmo lugar.
 - Uma tarefa em andamento por vez (por funcionário). Iniciar antes do horário puxa a tarefa para agora;
   concluir antes do previsto encurta a duração e libera o horário.
 - Tarefa vinculada a aparelho vira "Manutenção"; o relato da conclusão vai para o log do aparelho.
@@ -167,8 +174,20 @@ já confirmadas, sem enviar e-mail, e para limpar tudo no final).
   conclusão dele (ou desde o cadastro do aparelho) e mostra o aviso no cartão (ponto pulsando, laranja; vermelho
   se atrasado) a partir de metade do intervalo antes do fim, no máximo 30 dias antes (a cada 2 meses → falta 1 mês).
   A ligação é pelo nome do problema (`task.preset`). No banco, o responsável pode inserir a próxima ocorrência (política `tasks_insert`).
+- **Endereço e feriados** (`js/domain/holidays.js`): criar a empresa exige CEP + número (ViaCEP preenche rua, bairro,
+  cidade, UF e o código IBGE; cidade/UF travadas). Os feriados da cidade (ano atual e o seguinte) vêm do
+  feriados-brasil (github.com/joaopbini/feriados-brasil, via jsDelivr: nacional/estadual/municipal/facultativo) e,
+  para ano ainda não publicado, da BrasilAPI (nacionais; Carnaval = facultativo) + estaduais/municipais do ano
+  anterior projetados (`est:1`, "previsto"; móveis pela Páscoa). Ficam gravados na empresa (`ensureHolidays()`,
+  admin/funcionário, recarrega a cada 30 dias ou ao mudar a cidade). Feriado oficial (N/E/M) = dia sem expediente:
+  `findSlot`/`fitsAt` pulam, a agenda mostra "Feriado …: nome" e `requeueHolidayTasks()` reagenda as tarefas que
+  caírem nele; ponto facultativo (F) só aparece como aviso. Só o admin muda o endereço (aba Empresa; `guard_company`).
 - O funcionário define o horário de trabalho (entrada, saída e almoço) em Menu → "Horário de trabalho e folgas"
   (validação: entrada < almoço início < almoço fim < saída).
+- **Ausente hoje** (Horário de trabalho e folgas → "Marcar hoje como ausente", com confirmação): `markAbsentToday()`
+  grava uma folga só do dia de hoje (`off` com `note:'Ausente'`) e leva as tarefas **agendadas** de hoje para o dia
+  seguinte (`want` = amanhã; `placeByPriority`, pulando folgas/feriados; sem vaga na semana → pendente, e
+  `scheduleNewWeek()` as encaixa na virada da semana). Iniciadas não se mexem. Desfaz removendo a folga "Ausente".
 - Folga nova (semanal ou pontual) ou mudança no horário de trabalho devolve para "pendente" as tarefas
   agendadas que ficarem fora e reagenda automaticamente.
 - O funcionário organiza os aparelhos na Área de Trabalho arrastando (mouse: cartão inteiro; toque: alça ⠿):

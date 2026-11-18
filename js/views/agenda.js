@@ -30,6 +30,7 @@ function dayTimeline(emp, day) {
     .map((task) => ({ s: task.start, e: taskEnd(task), task }));
   items.push({ ...breakOf(p, day), label: 'Intervalo' });
   if (isWeeklyOff(p, day)) items.push({ s: ws, e: we, label: 'Folga semanal' });
+  else if (isHolidayOff(day)) items.push({ s: ws, e: we, label: holidayText(holidayOn(day)), holiday: true });
   (p.off || []).filter((o) => o.e > ws && o.s < we).forEach((o) => items.push({
     s: Math.max(o.s, ws), e: Math.min(o.e, we), label: 'Indisponível' + (o.note ? ': ' + o.note : ''),
   }));
@@ -65,8 +66,6 @@ const AGENDA_VIEWS = { dia: 'Dia', semana: 'Semana', mes: 'Mês' };
 const weekStart = (ms) => addDays(startOfDay(ms), -((new Date(ms).getDay() + 6) % 7));
 const monthStart = (ms) => { const d = new Date(ms); return new Date(d.getFullYear(), d.getMonth(), 1).getTime(); };
 const addMonths = (ms, n) => { const d = new Date(monthStart(ms)); d.setMonth(d.getMonth() + n); return d.getTime(); };
-/** "AAAA-MM-DD" no fuso local (valor do input date). */
-const toDateInput = (ms) => { const d = new Date(ms); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
 const isInCurrentWeek = (ms) => { const w = currentWeek(); return ms >= w.s && ms < w.e; };
 
 /** Período exibido: [início, fim) e o título. */
@@ -133,7 +132,7 @@ function agendaToolbar() {
     + '<button class="small" data-day="1" aria-label="Próximo">›</button></div>'
     + '<div class="row nowrap agenda-go">'
     + '<button class="small" data-agtoday="1"' + when(ui.agendaView === 'dia' && ui.agendaDay === today, ' disabled') + '>Hoje</button>'
-    + '<input type="date" id="ag_d" data-live value="' + toDateInput(ui.agendaDay) + '" aria-label="Ir para a data" title="Ir para a data"></div>'
+    + '<input type="date" id="ag_d" data-live value="' + dateKey(ui.agendaDay) + '" aria-label="Ir para a data" title="Ir para a data"></div>'
     + '</div>';
 }
 
@@ -156,10 +155,13 @@ function weekView(emp, canControl) {
   for (let i = 0; i < 7; i++) {
     const day = addDays(s, i);
     const list = entries[day] || [];
-    const off = isWeeklyOff(p, day) || (p.off || []).some((o) => o.s <= atTime(day, p.start) && o.e >= atTime(day, p.end));
-    html += '<button class="week-day' + when(day === today, ' today') + when(off, ' off') + '" data-agday="' + day + '">'
+    const hol = holidayOn(day);
+    const holOff = !!hol && hol.t !== 'F';
+    const off = holOff || isWeeklyOff(p, day) || (p.off || []).some((o) => o.s <= atTime(day, p.start) && o.e >= atTime(day, p.end));
+    html += '<button class="week-day' + when(day === today, ' today') + when(off, ' off') + when(holOff, ' holiday') + '" data-agday="' + day + '">'
       + '<span class="week-head">' + new Date(day).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' }) + '</span>'
-      + (each(list, (x) => calItem(x, canControl)) || '<span class="muted cal-empty">' + (off ? 'Folga' : 'Sem tarefas') + '</span>')
+      + (hol ? '<span class="cal-hol' + when(!holOff, ' optional') + '">' + esc(holidayText(hol)) + '</span>' : '')
+      + (each(list, (x) => calItem(x, canControl)) || '<span class="muted cal-empty">' + (holOff ? 'Sem expediente' : off ? 'Folga' : 'Sem tarefas') + '</span>')
       + '</button>';
   }
   return html + '</div><p class="muted">Toque num dia para abrir a agenda dele.</p>';
@@ -175,9 +177,15 @@ function monthView(emp, canControl) {
     + '<span class="month-blank"></span>'.repeat(lead);
   for (let day = s; day < e; day = addDays(day, 1)) {
     const list = entries[day] || [];
-    html += '<button class="month-day' + when(day === today, ' today') + when(day === ui.agendaDay, ' selected') + '" data-agday="' + day + '"'
-      + ' aria-label="' + new Date(day).toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' }) + ': ' + plural(list.length || 0, 'tarefa', 'tarefas') + '">'
+    const hol = holidayOn(day);
+    const holOff = !!hol && hol.t !== 'F';
+    html += '<button class="month-day' + when(day === today, ' today') + when(day === ui.agendaDay, ' selected') + when(holOff, ' holiday')
+      + when(hol && !holOff, ' optional') + '" data-agday="' + day + '"'
+      + (hol ? ' title="' + esc(holidayText(hol)) + '"' : '')
+      + ' aria-label="' + new Date(day).toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' }) + ': '
+      + (hol ? esc(holidayText(hol)) + ', ' : '') + plural(list.length || 0, 'tarefa', 'tarefas') + '">'
       + '<span class="month-num">' + new Date(day).getDate() + '</span>'
+      + (hol ? '<span class="cal-hol' + when(!holOff, ' optional') + '">' + esc(hol.n) + '</span>' : '')
       + when(list.length, '<span class="month-dots">' + each(list.slice(0, 4), (x) => '<i class="dot prio-' + x.task.prio
         + when(x.task.status === 'programada', ' prog') + '"></i>') + '</span>'
         + '<span class="month-count">' + list.length + '</span>')
@@ -185,7 +193,9 @@ function monthView(emp, canControl) {
       + when(list.length > 3, '<span class="muted">+' + (list.length - 3) + '</span>') + '</span>'
       + '</button>';
   }
-  return html + '</div><p class="muted">Toque num dia para abrir a agenda dele. "Prog." = manutenção periódica programada.</p>';
+  return html + '</div><p class="muted">Toque num dia para abrir a agenda dele. "Prog." = manutenção periódica programada.'
+    + (state.company?.addr?.ibge ? ' Feriados de ' + esc(state.company.addr.cidade) + '/' + esc(state.company.addr.uf) + ' marcados.'
+      : when(isAdmin(), ' Cadastre o CEP da empresa (aba Empresa) para marcar os feriados da cidade.')) + '</p>';
 }
 
 function proposalCard() {
@@ -241,11 +251,14 @@ function dayView(emp, canControl) {
         : '<p class="muted">Nenhuma tarefa aguardando.</p>');
   }
   if (ui.proposal) h += proposalCard();
+  const hol = holidayOn(day);
+  if (hol && hol.t === 'F') h += '<div class="card holiday-note">' + esc(holidayText(hol)) + ' · dia normal de trabalho</div>';
 
   const programmed = agendaEntries(emp, day, addDays(day, 1))[day]?.filter((x) => x.task.status === 'programada') || [];
   h += each(programmed, (x) => taskCard(x.task, { canControl, masked: isMasked(x.task, canControl) }));
   h += each(dayTimeline(emp, day), (it) => {
     if (it.free) return editable ? freeSlots(it) : '<div class="card slot muted static">' + fmtTime(it.s) + '–' + fmtTime(it.e) + ' · livre</div>';
+    if (it.holiday) return '<div class="card blocked holiday"><b>' + esc(it.label) + '</b><div class="muted">Dia sem expediente</div></div>';
     if (it.label) return '<div class="card blocked">' + fmtTime(it.s) + '–' + fmtTime(it.e) + ' · ' + esc(it.label) + '</div>';
     // Horários de outros solicitantes aparecem como "Ocupado" (o administrador vê tudo).
     return taskCard(it.task, { canControl, masked: isMasked(it.task, canControl), draggable: editable });

@@ -231,10 +231,11 @@ begin
   if coalesce(current_setting('tm.bypass', true), '') = 'on' or me is null or old.data->>'admin' = me then
     return new;
   end if;
-  -- Funcionário: nome, administrador e data de criação não mudam…
+  -- Funcionário: nome, administrador, data de criação e endereço não mudam (os feriados ele pode atualizar)…
   if new.data->>'name' is distinct from old.data->>'name'
      or new.data->>'admin' is distinct from old.data->>'admin'
-     or new.data->'created' is distinct from old.data->'created' then
+     or new.data->'created' is distinct from old.data->'created'
+     or new.data->'addr' is distinct from old.data->'addr' then
     raise exception 'Só o administrador altera os dados da empresa.';
   end if;
   -- …e as funções só podem ganhar categorias (a nova categoria vale para todas), nunca perder ou mudar.
