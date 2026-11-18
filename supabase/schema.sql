@@ -260,6 +260,29 @@ drop trigger if exists profiles_guard on public.profiles;
 create trigger profiles_guard before insert or update on public.profiles
   for each row execute function public.guard_profile();
 
+-- Cadastro: o perfil nasce junto com a conta (auth.users), a partir de { name, username } enviados no signUp.
+-- Necessário com a confirmação de e-mail ligada: até abrir o link não há sessão para o app gravar o perfil.
+-- Nome de usuário repetido viola o índice único e o cadastro inteiro é desfeito ("Database error saving new user").
+create or replace function public.handle_new_user() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  uname text := lower(trim(coalesce(new.raw_user_meta_data->>'username', '')));
+begin
+  if uname = '' then return new; end if;  -- sem metadados: o app cria o perfil (contas antigas)
+  perform set_config('tm.bypass', 'on', true);
+  insert into public.profiles (id, data) values (new.id::text, jsonb_build_object(
+    'name', left(coalesce(new.raw_user_meta_data->>'name', ''), 80), 'username', uname, 'email', lower(new.email),
+    'role', null, 'company', null, 'status', null, 'seen', 0, 'ck', new.id::text,
+    'start', '08:00', 'end', '17:00', 'bs', '12:00', 'be', '13:00', 'off', '[]'::jsonb))
+  on conflict (id) do nothing;
+  perform set_config('tm.bypass', 'off', true);
+  return new;
+end $$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created after insert on auth.users
+  for each row execute function public.handle_new_user();
+
 -- Nome de usuário livre? (usado no cadastro, antes de existir sessão)
 create or replace function public.username_available(uname text) returns boolean
 language sql stable security definer set search_path = public as $$

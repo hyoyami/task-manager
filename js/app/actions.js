@@ -423,6 +423,8 @@ const ACTIONS_BY_ID = {
       btn.removeAttribute('aria-busy');
     }
   },
+  a_resend: resendConfirmation,
+  a_back: () => { ui.authMode = 'in'; ui.authMsg = ''; render(); setTimeout(() => { const e = $('#a_e'); if (e) e.value = ui.pendingEmail; }, 0); },
   a_mode: () => { ui.authMode = ui.authMode === 'in' ? 'up' : 'in'; ui.authMsg = ''; render(); },
   a_out: () => logout(),
   // Cabeçalho, menu e notificações

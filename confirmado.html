@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>E-mail confirmado · TASK MANAGER</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <script>
+    try { document.documentElement.dataset.theme = localStorage.getItem('theme') || 'light'; }
+    catch (e) { document.documentElement.dataset.theme = 'light'; }
+  </script>
+</head>
+<!--
+  Página do link de confirmação de e-mail (Supabase Auth → "emailRedirectTo").
+  O Supabase confirma o e-mail ANTES de redirecionar para cá; esta página só lê o resultado
+  na URL (#access_token…&type=signup ou #error=…), apaga os tokens da barra de endereço
+  (sem guardar sessão) e leva a pessoa para entrar com e-mail/usuário e senha.
+  Link expirado: permite reenviar o e-mail de confirmação.
+-->
+<body class="auth-screen auth-bg">
+  <main id="app">
+    <section class="auth">
+      <h1 class="brand-login">TASK MANAGER</h1>
+      <div class="auth-card" id="card"><p class="muted">Verificando…</p></div>
+    </section>
+  </main>
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <script src="js/runtime/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var esc = function (s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    };
+    var card = document.getElementById('card');
+    var appUrl = new URL('index.html', location.href.split('#')[0].split('?')[0]).toString();
+
+    // O resultado vem no fragmento (#…) ou, em alguns casos, na query (?…).
+    var params = new URLSearchParams(location.hash.replace(/^#/, ''));
+    new URLSearchParams(location.search).forEach(function (v, k) { if (!params.has(k)) params.set(k, v); });
+    // Não deixa tokens na barra de endereço nem no histórico.
+    history.replaceState(null, '', location.pathname);
+
+    var enter = '<button class="primary btn-lg block" id="c_enter">Entrar no sistema</button>';
+
+    function show(title, html) {
+      card.innerHTML = '<h2 class="auth-title">' + title + '</h2>' + html;
+      var go = document.getElementById('c_enter');
+      if (go) go.addEventListener('click', function () { location.href = appUrl; });
+    }
+
+    function showResend(message) {
+      show('Link inválido ou expirado',
+        '<p class="auth-lead">' + esc(message) + '</p>'
+        + '<p class="muted">Informe seu e-mail para receber um novo link de confirmação.</p>'
+        + '<label for="c_e">E-mail</label><input type="email" id="c_e" autocomplete="email" autocapitalize="none" spellcheck="false">'
+        + '<p class="auth-error" id="c_m" role="alert"></p>'
+        + '<button class="primary btn-lg block" id="c_go">Reenviar link</button>'
+        + '<p class="auth-switch">Já confirmou? <a href="' + esc(appUrl) + '">Entrar</a></p>');
+      var btn = document.getElementById('c_go');
+      btn.addEventListener('click', async function () {
+        var email = document.getElementById('c_e').value.trim().toLowerCase();
+        var msg = document.getElementById('c_m');
+        if (!/^\S+@\S+\.\S+$/.test(email)) { msg.textContent = 'Informe um e-mail válido.'; return; }
+        btn.disabled = true;
+        try {
+          var cfg = window.TM_CONFIG;
+          var sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseKey, { auth: { persistSession: false, detectSessionInUrl: false } });
+          var r = await sb.auth.resend({ type: 'signup', email: email, options: { emailRedirectTo: location.href.split('#')[0] } });
+          if (r.error) throw r.error;
+          show('Link reenviado', '<p class="auth-lead">Enviamos um novo link para <b>' + esc(email) + '</b>.</p>'
+            + '<p class="muted">Abra o e-mail e toque em <b>Confirmar e-mail</b>. Não chegou? Veja a caixa de spam.</p>');
+        } catch (e) {
+          msg.textContent = /rate limit|too many/i.test(e.message || '') ? 'Muitas tentativas. Aguarde alguns minutos.'
+            : 'Não foi possível reenviar. Confira o e-mail e tente de novo.';
+          btn.disabled = false;
+        }
+      });
+    }
+
+    var error = params.get('error_description') || params.get('error');
+    var type = params.get('type');
+    if (error) {
+      var expired = /expired|invalid/i.test(error) || params.get('error_code') === 'otp_expired';
+      showResend(expired ? 'Este link já foi usado ou expirou.' : 'Não foi possível confirmar: ' + error.replace(/\+/g, ' '));
+    } else if (type === 'email_change') {
+      show('Novo e-mail confirmado', '<p class="auth-lead">Seu endereço de e-mail foi alterado.</p>'
+        + '<p class="muted">Use o novo e-mail (ou seu nome de usuário) para entrar.</p>' + enter);
+    } else if (params.get('message')) {
+      // Troca de e-mail com confirmação nos dois endereços: falta abrir o link do outro e-mail.
+      show('Falta um passo', '<p class="auth-lead">Link aceito. Agora abra também o link enviado para o outro endereço de e-mail.</p>' + enter);
+    } else if (params.get('access_token') || type === 'signup' || params.get('code')) {
+      show('E-mail confirmado!', '<p class="auth-lead">Sua conta está ativa.</p>'
+        + '<p class="muted">Agora é só entrar com seu e-mail (ou nome de usuário) e a senha que você criou.</p>' + enter);
+    } else {
+      show('Confirmação de e-mail', '<p class="auth-lead">Esta página abre pelo link enviado para o seu e-mail.</p>'
+        + '<p class="muted">Se você já confirmou, é só entrar.</p>' + enter);
+    }
+  })();
+  </script>
+</body>
+</html>

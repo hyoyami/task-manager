@@ -11,6 +11,7 @@ JavaScript puro, **sem build**: scripts clássicos carregados em ordem pelo `ind
 
 ```
 index.html                 esqueleto HTML + ordem de carregamento dos scripts
+confirmado.html            página do link de confirmação de e-mail (independente do app)
 css/styles.css             tema (tokens em :root / [data-theme=dark]) e componentes
 js/runtime/                config.js (escolhe o back-end + URL/chave pública do Supabase),
                            supabase-runtime.js (banco/login/tempo real no Supabase — produção),
@@ -51,6 +52,11 @@ ou `localStorage.setItem('tm_backend','local')`.
   `db.call('join_with_invite', {code})` = entrar pelo link de convite; `claim_task` = assumir tarefa aberta;
   `username_available` / `email_for_username` = nome de usuário (RPCs validadas no servidor).
 - Login: Supabase Auth (`profiles.id = auth.uid()`); a coleção `cred` só existe no modo local.
+  **Confirmação de e-mail ligada**: o signUp envia `{name, username}` nos metadados e o gatilho `handle_new_user`
+  (em `auth.users`) cria o perfil (username repetido desfaz o cadastro). Sem sessão até confirmar: o app mostra
+  "Confirme seu e-mail" (`ui.authMode='check'`, reenviar link); o link abre `confirmado.html` (lê o resultado na URL,
+  apaga os tokens, oferece reenviar se expirou). Site URL/redirects no Supabase: `https://hyoyami.github.io/task-manager/**`
+  e `localhost:8000`. Modelos de e-mail em português em `supabase/email/` (aplicar no painel quando houver SMTP próprio).
 - RLS (ver `supabase/schema.sql`): cada tabela só mostra linhas da empresa do usuário (`my_company()`, só
   membros **ativos**). Tarefa: o solicitante cria e só solicitante/responsável alteram; aparelho: funcionários e
   admin cadastram/alteram (solicitante só com tarefa vinculada), apagam quem cadastrou e o admin; notificação só o
@@ -64,8 +70,8 @@ ou `localStorage.setItem('tm_backend','local')`.
 
 Testes: `pip install playwright && playwright install chromium`, depois
 `python tests/smoke.py` e `python tests/e2e.py` (modo local). Rode o e2e após qualquer mudança.
-`python tests/supabase_e2e.py` testa contra o Supabase real (exige confirmação de e-mail desligada e
-`~/.supabase-token` para limpar os usuários de teste).
+`python tests/supabase_e2e.py` testa contra o Supabase real (usa `~/.supabase-token` para criar as contas de teste
+já confirmadas, sem enviar e-mail, e para limpar tudo no final).
 
 ## Modelo de dados (coleções do banco)
 - `companies/<id>` — `{name, admin(uid), created, cats:[{name,icon}] (criadas), hidden:[] (de fábrica excluídas),
@@ -197,7 +203,8 @@ Testes: `pip install playwright && playwright install chromium`, depois
 - Regras de agenda rodam no navegador; o RLS limita quem altera o quê, mas a lógica não é validada no
   servidor. Próximo passo possível: mover ações críticas para funções do banco (RPC).
 - Fotos dos tutoriais ficam no jsonb (data URL); para muitas fotos, mover para o Supabase Storage.
-- Confirmação de e-mail desligada (o plano grátis só envia 2 e-mails/hora); para religar, configurar SMTP próprio.
+- E-mails de confirmação: sem SMTP próprio, o Supabase grátis só envia ~2 e-mails/hora e só para membros da equipe do
+  projeto, e não deixa mudar os modelos. Para usuários reais, configurar SMTP próprio (Authentication → Emails → SMTP).
 - Só a categoria **Impressora** tem problemas pré-definidos de fábrica; faltam Computador, Raspberry Pi, Orange Pi, Móvel 0–3.
 - Tutoriais (Menu ☰ → Tutoriais) estão prontos, mas sem conteúdo.
 - Fotos de aparelhos ainda não existem (o cartão usa o ícone da categoria).

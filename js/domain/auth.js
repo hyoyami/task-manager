@@ -55,10 +55,13 @@ async function submitAuth() {
   let id;
   try {
     if (signup && !(await usernameAvailable(username))) return fail('Este nome de usuário já está em uso.');
-    id = signup ? await state.auth.signUp(login, password, keep) : await state.auth.signIn(login, password, keep);
+    id = signup ? await state.auth.signUp(login, password, keep, { name, username }) : await state.auth.signIn(login, password, keep);
   } catch (err) {
+    if (err.code === 'unconfirmed') return showConfirmEmail(err.email);
     return fail(err.message);
   }
+  // Confirmação de e-mail ligada: a conta (e o perfil, criado pelo banco) existe, mas só entra depois do link.
+  if (id && id.pending) return showConfirmEmail(login);
 
   // Papel e empresa são definidos depois: criando uma empresa, pedindo entrada ou por convite.
   if (signup) {
@@ -74,6 +77,26 @@ async function submitAuth() {
   }
   ui.authMsg = '';
   startSession(id);
+}
+
+/** Tela "Confirme seu e-mail" (cadastro feito, falta abrir o link). */
+function showConfirmEmail(email) {
+  ui.authMode = 'check';
+  ui.pendingEmail = email;
+  ui.authMsg = '';
+  render();
+}
+
+async function resendConfirmation(btn) {
+  btn.disabled = true;
+  try {
+    await state.auth.resendConfirmation(ui.pendingEmail);
+    say('Enviamos um novo link para ' + ui.pendingEmail + '.');
+  } catch (err) {
+    say(err.message);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 function stopSync() {

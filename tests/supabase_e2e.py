@@ -8,8 +8,8 @@ No final apaga os usuários e dados criados.
 
 Requer:
   - pip install playwright && playwright install chromium
-  - Confirmação de e-mail desligada no projeto (Authentication → Sign In / Providers → Email)
-  - Para a limpeza: token de acesso do Supabase em ~/.supabase-token (Account → Access Tokens)
+  - Token de acesso do Supabase em ~/.supabase-token (Account → Access Tokens): cria as contas de teste
+    já confirmadas (sem enviar e-mail) e faz a limpeza no final
 Uso:  python tests/supabase_e2e.py
 """
 import functools
@@ -57,6 +57,36 @@ def sql(query):
         return json.loads(r.read() or b"[]")
 
 
+_service_key = None
+
+
+def service_key():
+    """Chave service_role do projeto (pela API de gerenciamento; só em memória, nunca gravada)."""
+    global _service_key
+    if not _service_key:
+        token = (pathlib.Path.home() / ".supabase-token").read_text().strip()
+        req = urllib.request.Request(
+            f"https://api.supabase.com/v1/projects/{PROJECT_REF}/api-keys?reveal=true",
+            headers={"Authorization": f"Bearer {token}", "User-Agent": "task-manager-tests"})
+        with urllib.request.urlopen(req) as r:
+            _service_key = next(k["api_key"] for k in json.loads(r.read()) if k["name"] == "service_role")
+    return _service_key
+
+
+def create_user(name, email):
+    """Conta confirmada com { name, username } — o gatilho do banco cria o perfil."""
+    key = service_key()
+    req = urllib.request.Request(
+        f"https://{PROJECT_REF}.supabase.co/auth/v1/admin/users",
+        data=json.dumps({"email": email, "password": PASSWORD, "email_confirm": True,
+                         "user_metadata": {"name": name, "username": email.split("@")[0]}}).encode(),
+        headers={"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json",
+                 "User-Agent": "task-manager-tests"},
+        method="POST")
+    with urllib.request.urlopen(req) as r:
+        return json.loads(r.read())["id"]
+
+
 def cleanup():
     """Apaga os usuários de teste (tm-e2e-*) e tudo o que eles criaram."""
     ids = "(select id::text from auth.users where email like '" + EMAIL_PREFIX + "%@example.com')"
@@ -90,20 +120,21 @@ class User:
         self.wait()
 
     def signup(self, name, email):
+        """Cria a conta já confirmada (API administrativa, sem enviar e-mail) e entra pela tela de login.
+        Com a confirmação de e-mail ligada, o cadastro pela tela mandaria um e-mail de verdade."""
+        create_user(name, email)
         pg = self.pg
         pg.wait_for_selector("#a_go", timeout=20000)
-        if not pg.query_selector("#a_n"):
+        if pg.query_selector("#a_n"):
             self.click("#a_mode")
-        pg.fill("#a_n", name)
-        pg.fill("#a_u", email.split("@")[0])
-        pg.fill("#a_e", email)
+        pg.fill("#a_e", email.split("@")[0])  # entra pelo nome de usuário
         pg.fill("#a_p", PASSWORD)
         pg.check("#a_k")
         self.click("#a_go")
         try:
             pg.wait_for_selector("nav button, #ob_cn", timeout=20000)
         except Exception:
-            raise AssertionError(f"[{self.label}] cadastro falhou: {pg.inner_text('#a_m')}")
+            raise AssertionError(f"[{self.label}] login falhou: {pg.inner_text('#a_m')}")
         self.wait(500)
 
     def db_call(self, js):

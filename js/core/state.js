@@ -66,7 +66,9 @@ const ui = {
   presetEmp: null,
 
   /** Tela de login: 'in' (entrar) | 'up' (criar conta) e mensagem de erro. */
-  authMode: 'in',
+  authMode: 'in', // 'in' entrar | 'up' criar conta | 'check' confirmar o e-mail
+  /** E-mail aguardando confirmação (tela 'check'). */
+  pendingEmail: '',
   authMsg: '',
 
   /** Notificações: horário da última visualização ao abrir o painel. */

@@ -420,6 +420,7 @@ def main():
         n += open_task_flow(b, shots_dir)
         n += deletion_flow(b, shots_dir)
         n += recurrence_flow(b, shots_dir)
+        n += email_confirmation_flow(b, shots_dir)
         print(f"OK: {len(r.shots) + n} telas verificadas, sem erros de JavaScript.")
         b.close()
 
@@ -1010,6 +1011,41 @@ def recurrence_flow(browser, shots_dir):
     r.click('[data-agtoday="1"]')
     assert pg.locator(".slot[data-t]").count() > 0  # hoje: horários livres clicáveis
     pg.set_viewport_size({"width": 420, "height": 1400})
+    assert not r.errors, r.errors
+    ctx.close()
+    return len(r.shots)
+
+
+def email_confirmation_flow(browser, shots_dir):
+    """Tela "Confirme seu e-mail" (após o cadastro) e a página confirmado.html (link do e-mail)."""
+    ctx = browser.new_context(viewport={"width": 420, "height": 900}, locale="pt-BR")
+    pg = ctx.new_page()
+    r = Run(pg, shots_dir / "email" if shots_dir else None)
+    if r.shots_dir:
+        r.shots_dir.mkdir(exist_ok=True)
+    pg.goto(INDEX)
+    pg.wait_for_selector("#a_go")
+    pg.evaluate("showConfirmEmail('nova@teste.com')")
+    txt = r.shot("confirme-email")
+    assert "Confirme seu e-mail" in txt and "nova@teste.com" in txt, txt
+    r.click("#a_back")
+    assert pg.input_value("#a_e") == "nova@teste.com"
+
+    page = (ROOT / "confirmado.html").as_uri()
+    pg.goto(page + "#access_token=abc&refresh_token=def&type=signup")
+    pg.wait_for_selector("#c_enter")
+    txt = r.shot("email-confirmado")
+    assert "E-mail confirmado!" in txt, txt
+    assert "access_token" not in pg.url  # tokens saem da barra de endereço
+    r.click("#c_enter")
+    pg.wait_for_selector("#a_go")  # volta para o sistema (tela de login)
+
+    pg.goto(page + "#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired")
+    pg.wait_for_selector("#c_go")
+    txt = r.shot("link-expirado")
+    assert "Link inválido ou expirado" in txt, txt
+    r.click("#c_go")
+    assert "e-mail válido" in pg.inner_text("#c_m")
     assert not r.errors, r.errors
     ctx.close()
     return len(r.shots)

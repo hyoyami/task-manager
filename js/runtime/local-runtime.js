@@ -227,6 +227,7 @@
       writeAid(aid, keep);
       return (currentAid = aid);
     },
+    resendConfirmation: async function () {}, // modo local: sem e-mail de confirmação
     signOut: async function () { clearAid(); currentAid = null; },
     detach: async function () { clearAid(); currentAid = null; },
     resume: async function (id) {

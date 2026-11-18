@@ -198,9 +198,16 @@
   // Os tokens são renovados periodicamente: guarda sempre o mais recente de cada conta.
   sb.auth.onAuthStateChange(function (event, session) { if (session) rememberSession(session); });
 
+  /** Página aberta pelo link de confirmação do e-mail (confirmado.html, ao lado do index.html). */
+  function confirmUrl() {
+    return new URL('confirmado.html', location.href.split('#')[0].split('?')[0]).toString();
+  }
+
   /** Mensagens do Supabase Auth → português. */
   function authMessage(error) {
     var m = (error && error.message) || '';
+    // O perfil é criado por um gatilho no cadastro; nome de usuário repetido faz o cadastro falhar.
+    if (/database error saving new user/i.test(m)) return 'Este nome de usuário já está em uso.';
     if (/invalid login credentials/i.test(m)) return 'E-mail/usuário ou senha incorretos.';
     if (/already (been )?registered|already exists/i.test(m)) return 'Este e-mail já está cadastrado.';
     if (/email not confirmed/i.test(m)) return 'Confirme seu e-mail pelo link enviado antes de entrar.';
@@ -229,18 +236,25 @@
   var auth = {
     kind: 'supabase',
     restore: async function () { var u = await currentUser(); return u ? u.id : null; },
-    signUp: async function (email, password, keepConnected) {
+    /**
+     * Cria a conta. `meta` = { name, username } (o banco cria o perfil a partir disso).
+     * Com confirmação de e-mail ligada, devolve { id, pending: true } e envia o link para o e-mail.
+     */
+    signUp: async function (email, password, keepConnected, meta) {
       setKeep(keepConnected);
-      var r = await sb.auth.signUp({ email: email, password: password });
+      var r = await sb.auth.signUp({ email: email, password: password, options: { data: meta || {}, emailRedirectTo: confirmUrl() } });
       if (r.error) throw new Error(authMessage(r.error));
       // Com confirmação de e-mail ligada, um e-mail já usado volta sem identidades.
       if (r.data.user && r.data.user.identities && r.data.user.identities.length === 0) {
         throw new Error('Este e-mail já está cadastrado.');
       }
-      if (!r.data.session) {
-        throw new Error('Cadastro criado! Confirme o e-mail pelo link enviado e depois entre.');
-      }
+      if (!r.data.session) return { id: r.data.user.id, pending: true };
       return r.data.user.id;
+    },
+    /** Reenvia o link de confirmação do cadastro. */
+    resendConfirmation: async function (email) {
+      var r = await sb.auth.resend({ type: 'signup', email: email, options: { emailRedirectTo: confirmUrl() } });
+      if (r.error) throw new Error(authMessage(r.error));
     },
     /** `login` é o e-mail ou o nome de usuário (resolvido para o e-mail pelo banco). */
     signIn: async function (login, password, keepConnected) {
@@ -253,7 +267,12 @@
         email = found.data;
       }
       var r = await sb.auth.signInWithPassword({ email: email, password: password });
-      if (r.error) throw new Error(authMessage(r.error));
+      if (r.error) {
+        var err = new Error(authMessage(r.error));
+        // E-mail ainda não confirmado: a tela oferece reenviar o link.
+        if (/email not confirmed/i.test(r.error.message)) { err.code = 'unconfirmed'; err.email = email; }
+        throw err;
+      }
       return r.data.user.id;
     },
     signOut: async function () {
@@ -274,7 +293,7 @@
     /** Devolve { pending: true } quando o Supabase exige confirmar o novo e-mail. */
     changeEmail: async function (email, password) {
       await verifyPassword(password);
-      var r = await sb.auth.updateUser({ email: email });
+      var r = await sb.auth.updateUser({ email: email }, { emailRedirectTo: confirmUrl() });
       if (r.error) throw new Error(/already|registered|exists/i.test(r.error.message) ? 'Este e-mail já está em uso.' : authMessage(r.error));
       return { pending: !r.data.user || r.data.user.email !== email };
     },

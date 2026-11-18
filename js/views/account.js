@@ -78,7 +78,22 @@ function viewTimeOff() {
 }
 
 // ---------- Login / cadastro ----------
+/** Cadastro feito: falta confirmar o e-mail pelo link enviado. */
+function viewConfirmEmail() {
+  return '<section class="auth">'
+    + '<h1 class="brand-login">TASK MANAGER</h1>'
+    + '<div class="auth-card">'
+    + '<h2 class="auth-title">Confirme seu e-mail</h2>'
+    + '<p class="auth-lead">Enviamos um link de confirmação para <b>' + esc(ui.pendingEmail) + '</b>.</p>'
+    + '<p class="muted">Abra o e-mail e toque em <b>Confirmar e-mail</b>. Depois volte aqui e entre com seu e-mail '
+    + '(ou nome de usuário) e senha. Não chegou? Veja a caixa de spam ou reenvie.</p>'
+    + '<button class="primary btn-lg block" id="a_back">Já confirmei — entrar</button>'
+    + '<button class="btn-lg block" id="a_resend">Reenviar e-mail</button>'
+    + '</div></section>';
+}
+
 function viewLogin() {
+  if (ui.authMode === 'check') return viewConfirmEmail();
   const signup = ui.authMode === 'up';
   return '<section class="auth">'
     + '<h1 class="brand-login">TASK MANAGER</h1>'
