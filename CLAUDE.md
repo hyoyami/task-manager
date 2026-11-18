@@ -190,6 +190,12 @@ já confirmadas, sem enviar e-mail, e para limpar tudo no final).
   `scheduleNewWeek()` as encaixa na virada da semana). Iniciadas não se mexem. Desfaz removendo a folga "Ausente".
 - Folga nova (semanal ou pontual) ou mudança no horário de trabalho devolve para "pendente" as tarefas
   agendadas que ficarem fora e reagenda automaticamente.
+- "Tarefas para agendar" (agenda): mais urgentes primeiro. Em telas ≥ 900px é uma faixa lateral; no celular vira lista
+  vertical com as 3 primeiras + "Ver todas (N)" (`ui.showAllWaiting`, `WAITING_PREVIEW`). A aba **Tarefas** mostra um
+  contador das que esperam o aceite do usuário (`tasksToAccept()`: enviadas a ele + abertas que ele pode assumir).
+- Faixa lateral (telas largas, inclusive tablet): desliza para o lado em qualquer parte do cartão; no toque só a alça ⠿
+  (`.drag-handle`) arrasta para um horário (com o mouse, a linha do título `.drag-row` também). `pointercancel` só
+  redesenha se havia arrasto (senão interrompia a rolagem); `renderApp` mantém a rolagem das `.strip`.
 - O funcionário organiza os aparelhos na Área de Trabalho arrastando (mouse: cartão inteiro; toque: alça ⠿):
   borda de outro aparelho = reordena; meio = cria grupo (ou entra no grupo dele); fora dos grupos = solta.
 - Na aba Aparelhos do **solicitante**, os aparelhos de todos aparecem agrupados por categoria; ele só pode
@@ -207,6 +213,10 @@ já confirmadas, sem enviar e-mail, e para limpar tudo no final).
   em `<main>` (fora da Agenda) nem durante arrasto (`ui.drag`). Sem empresa ativa, só mostra a tela de entrada.
 - `renderApp()` preserva, na mesma aba, o que a pessoa já preencheu/escolheu e ainda não salvou (o tempo real
   redesenha a tela a qualquer momento). Depois de salvar com sucesso, esvazie os campos com `clearFields(...ids)`.
+  A tela de login (`renderLoggedOut()`) também preserva os campos. Login/cadastro e criação/entrada na empresa
+  guardam um rascunho na sessão da aba (`tm_draft` em sessionStorage, **sem a senha**; `saveDraft`/`restoreDraft`)
+  para sobreviver a recarregar a página no celular (puxar para atualizar — bloqueado por `overscroll-behavior` nessas
+  telas — ou aba descartada ao abrir o e-mail); apagado com `clearDraft()` quando dá certo.
 - Dados chegam crus em `raw` (domain/auth.js) e `applyCompanyScope()` monta `state`. Quando empresa/status do
   usuário mudam, `startSession()` reabre todas as assinaturas (o que o banco deixa ver mudou).
 - Cliques passam por um listener global (`app/events.js`) que despacha para `ACTIONS_BY_ID[btn.id]`

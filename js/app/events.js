@@ -128,7 +128,11 @@ function onKeyDown(e) {
 function initEvents() {
   document.addEventListener('click', onClick);
   document.addEventListener('change', onChange);
-  document.addEventListener('input', (e) => { if (e.target.classList?.contains('cep-input')) onCepInput(e.target); });
+  document.addEventListener('input', (e) => {
+    saveDraft(e.target);
+    if (e.target.classList?.contains('cep-input')) onCepInput(e.target);
+  });
+  document.addEventListener('change', (e) => saveDraft(e.target)); // selects e "manter conectado"
   document.addEventListener('keydown', onKeyDown);
   // Fundo do modal e da gaveta lateral fecham ao tocar.
   $('#md').addEventListener('click', (e) => { if (e.target.id === 'md') closeModal(); });

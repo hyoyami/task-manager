@@ -166,6 +166,10 @@ const canTakeTask = (t) => !!t.pool && !t.emp && t.status === 'aguardando' && ca
 /** Abertas visíveis ao usuário logado. */
 const openTasksForMe = () => allTasks().filter(canTakeTask);
 
+/** Esperando o aceite do usuário logado: as enviadas para ele + as abertas que ele pode assumir (contador da aba Tarefas). */
+const tasksToAccept = () => (executes(state.me)
+  ? allTasks().filter((t) => (t.emp === state.uid && t.status === 'aguardando') || canTakeTask(t)) : []);
+
 /**
  * Assume a tarefa aberta (o banco garante que só um consegue) e já agenda com a duração escolhida.
  */

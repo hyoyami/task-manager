@@ -114,7 +114,7 @@ function taskCard(t, { canControl = false, masked = false, draggable = false } =
   const who = canControl ? 'de ' + nameOf(t.req) : isOpenTask(t) ? 'aberta para a equipe' + (t.cat ? ' (' + t.cat + ')' : '') : 'para ' + nameOf(t.emp);
   return '<div class="card prio-' + t.prio + when(t.status === 'andamento', ' running') + '" data-tid="' + t.id + '">'
     + taskTimeHeader(t)
-    + '<div class="row between' + when(drag, ' drag-handle') + '"><b>' + when(drag, '⠿ ') + esc(t.title) + '</b><span>' + statusTags(t) + '</span></div>'
+    + '<div class="row between' + when(drag, ' drag-row') + '"><b>' + when(drag, GRIP) + esc(t.title) + '</b><span>' + statusTags(t) + '</span></div>'
     + when(t.desc, '<div class="muted">' + esc(t.desc) + '</div>')
     + deviceLine(t)
     + '<div class="muted">' + (t.start ? fmtDay(t.start) : 'Sem horário') + ' · ' + (t.dur ? t.dur + ' min' : 'duração a definir') + ' · ' + esc(who) + '</div>'
@@ -126,9 +126,15 @@ function taskCard(t, { canControl = false, masked = false, draggable = false } =
 }
 
 /** Cartão compacto (faixa "Tarefas para agendar") que pode ser arrastado. */
+/**
+ * Alça de arrastar do cartão de tarefa. No toque, só ela arrasta (o resto do cartão rola a faixa/página);
+ * com o mouse, a linha do título inteira (.drag-row) também serve.
+ */
+const GRIP = '<span class="drag-handle" title="Arrastar para um horário" aria-hidden="true">⠿</span> ';
+
 const dragCard = (t) => '<div class="card prio-' + t.prio + when(ui.selectedTask === t.id, ' selected') + '" data-tid="' + t.id + '">'
   + taskTimeHeader(t)
-  + '<div class="row between drag-handle"><b>⠿ ' + esc(t.title) + '</b>' + tag(PRIORITY_LABEL[t.prio]) + '</div>'
+  + '<div class="row between drag-row"><b>' + GRIP + esc(t.title) + '</b>' + tag(PRIORITY_LABEL[t.prio]) + '</div>'
   + when(t.desc, '<div class="muted">' + esc(t.desc) + '</div>')
   + deviceLine(t)
   + '<div class="muted">de ' + esc(nameOf(t.req)) + '</div>'

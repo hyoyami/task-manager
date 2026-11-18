@@ -59,6 +59,9 @@ function normalizeAgenda() {
   ui.agendaDay = startOfDay(ui.agendaDay || Date.now());
 }
 
+/** Celular: quantas tarefas para agendar aparecem antes do "Ver todas". */
+const WAITING_PREVIEW = 3;
+
 // ---------- Visões: dia, semana e mês ----------
 const AGENDA_VIEWS = { dia: 'Dia', semana: 'Semana', mes: 'Mês' };
 
@@ -240,13 +243,19 @@ function dayView(emp, canControl) {
       : ' · fora da semana atual: só visualização') + '</p>';
 
   if (canControl && editable) {
-    const waiting = tasksOf(['pendente', 'aguardando']);
     const open = openTasksForMe();
+    // Mais urgentes primeiro. Computador: faixa lateral; celular: lista vertical com as primeiras e "Ver todas".
+    const list = [...tasksOf(['pendente', 'aguardando']), ...open].sort(byPriority((t) => t.created));
+    const extra = list.length - WAITING_PREVIEW;
+    const card = (t, i) => (canTakeTask(t) ? openTaskCard(t) : dragCard(t)).replace('class="card ', 'class="card ' + (i >= WAITING_PREVIEW ? 'extra ' : ''));
     h += '<div class="row toolbar"><button class="small" data-prop="1">Reorganizar agenda</button></div>'
-      + '<h2>Tarefas para agendar</h2>'
-      + (waiting.length || open.length
-        ? '<div class="strip">' + each(waiting, dragCard) + each(open, openTaskCard) + '</div>'
-          + '<p class="muted">Defina a duração e arraste o cartão (⠿) até um horário livre.'
+      + '<h2>Tarefas para agendar' + when(list.length, ' (' + list.length + ')') + '</h2>'
+      + (list.length
+        ? '<div class="strip waiting' + when(ui.showAllWaiting, ' expanded') + '">' + each(list, card) + '</div>'
+          + when(extra > 0, '<button class="block see-all" data-seeall="1">' + (ui.showAllWaiting ? 'Mostrar menos'
+            : 'Ver todas (' + list.length + ') · mais ' + plural(extra, 'tarefa', 'tarefas')) + '</button>')
+          + '<p class="muted"><span class="wide-only">' + when(list.length > 1, 'Deslize para o lado para ver todas. ') + '</span>'
+          + 'Defina a duração e toque em <b>Aceitar</b> (vai para o primeiro horário livre), ou arraste pela alça ⠿ até um horário.'
           + when(open.length, ' Tarefas <b>abertas para a equipe</b>: o primeiro que aceitar fica com ela.') + '</p>'
         : '<p class="muted">Nenhuma tarefa aguardando.</p>');
   }

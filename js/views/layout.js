@@ -17,7 +17,9 @@ function headerHtml() {
 }
 
 function navHtml() {
-  const badge = (key) => (key === 'empresa' && state.joinRequests.length ? '<span class="badge">' + state.joinRequests.length + '</span>' : '');
+  const count = { empresa: state.joinRequests.length, tarefas: tasksToAccept().length };
+  const badge = (key) => (count[key] ? '<span class="badge" aria-label="' + count[key] + (key === 'tarefas' ? ' para aceitar' : ' pedidos')
+    + '">' + count[key] + '</span>' : '');
   return each(tabsFor(state.me.role), ([key, label]) =>
     '<button data-tab="' + key + '" class="' + when(ui.tab === key, 'on') + '">' + label + badge(key) + '</button>');
 }

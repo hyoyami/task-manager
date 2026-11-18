@@ -42,7 +42,7 @@ function endDrag() {
 }
 
 function onPointerDown(e) {
-  const handle = e.target.closest('.drag-handle');
+  const handle = e.target.closest('.drag-handle') || (e.pointerType === 'mouse' && e.target.closest('.drag-row'));
   if (!handle || ui.drag || e.target.closest('select,button')) return;
   const card = handle.closest('[data-tid]');
   if (!card) return;
@@ -91,5 +91,7 @@ function initDrag() {
   document.addEventListener('pointerdown', onPointerDown);
   document.addEventListener('pointermove', (e) => { if (ui.drag) moveDrag(e.clientX, e.clientY); });
   document.addEventListener('pointerup', onPointerUp);
-  document.addEventListener('pointercancel', () => { endDrag(); render(); });
+  // pointercancel também chega quando o toque vira rolagem (ex.: deslizar a faixa de tarefas para o lado):
+  // só redesenha se havia um arrasto — redesenhar no meio da rolagem a interrompia e voltava ao início.
+  document.addEventListener('pointercancel', () => { if (endDrag()) render(); });
 }

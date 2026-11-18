@@ -93,7 +93,60 @@ function renderLoggedOut() {
   openNotifications(false);
   openMenu(false);
   // Com sessão salva, o perfil ainda está chegando do banco.
-  $('#app').innerHTML = state.uid ? '<p class="muted">Carregando…</p>' : viewLogin();
+  if (state.uid) {
+    $('#app').innerHTML = '<p class="muted">Carregando…</p>';
+    lastRenderedTab = null;
+    return;
+  }
+  // Mesma tela (entrar/criar conta): mantém o que já foi digitado, até a senha.
+  // Depois de recarregar a página, volta para a tela em que a pessoa estava (ex.: "Criar conta").
+  if (!draftModeRestored) {
+    draftModeRestored = true;
+    if (readDraft()._mode === 'up' && ui.authMode === 'in') ui.authMode = 'up';
+  }
+  const app = $('#app');
+  const key = 'login:' + ui.authMode;
+  const saved = lastRenderedTab === key ? captureFields(app) : null;
+  app.innerHTML = viewLogin();
+  lastRenderedTab = key;
+  if (saved && saved.size) restoreFields(app, saved);
+  restoreDraft(app);
+}
+
+// ---------- Rascunho das telas de entrada (sobrevive a recarregar a página) ----------
+// No celular, "puxar para atualizar" ou o navegador descartar a aba (ao abrir o e-mail, por exemplo)
+// recarregam a página. O que foi digitado no cadastro e na criação da empresa fica guardado na sessão
+// da aba (sessionStorage) até dar certo. A senha nunca é guardada.
+const DRAFT_KEY = 'tm_draft';
+const DRAFT_FIELDS = /^(a_(n|u|e|k)|ob_(cn|cep|num|rua|bai|comp|company|role))$/;
+let draftModeRestored = false;
+
+function readDraft() {
+  try { return JSON.parse(storage.get(DRAFT_KEY, sessionStorage) || '{}'); } catch (_) { return {}; }
+}
+
+function saveDraft(el) {
+  if (!el?.id || !DRAFT_FIELDS.test(el.id)) return;
+  const draft = readDraft();
+  draft[el.id] = el.type === 'checkbox' ? el.checked : el.value;
+  if (el.id.startsWith('a_')) draft._mode = ui.authMode;
+  storage.set(DRAFT_KEY, JSON.stringify(draft), sessionStorage);
+}
+
+const clearDraft = () => storage.remove(DRAFT_KEY, sessionStorage);
+
+/** Preenche os campos vazios com o rascunho (e refaz a busca do CEP, que preenche cidade/UF). */
+function restoreDraft(root) {
+  const draft = readDraft();
+  Object.entries(draft).forEach(([id, value]) => {
+    if (id.startsWith('_')) return;
+    const el = root.querySelector('#' + id);
+    if (!el) return;
+    if (el.type === 'checkbox') { if (!isDirty(el)) el.checked = !!value; return; }
+    if (el.value || value === '' || value == null) return;
+    el.value = value;
+    if (el.classList.contains('cep-input') && !ui.cepLookup[id.replace(/_cep$/, '')]) onCepInput(el);
+  });
 }
 
 // ---------- Preservar o que a pessoa está preenchendo ----------
@@ -130,11 +183,18 @@ function restoreFields(root, saved) {
   });
 }
 
+/** Rolagem horizontal das faixas (ex.: "Tarefas para agendar"), para o redesenho não voltar ao início. */
+const captureScroll = (root) => [...root.querySelectorAll('.strip')].map((el) => el.scrollLeft);
+const restoreScroll = (root, list) => root.querySelectorAll('.strip').forEach((el, i) => { if (list[i]) el.scrollLeft = list[i]; });
+
 function renderApp(html) {
   const app = $('#app');
   const sameTab = lastRenderedTab === ui.tab;
   const saved = sameTab ? captureFields(app) : null;
+  const scroll = sameTab ? captureScroll(app) : [];
   app.innerHTML = html;
   lastRenderedTab = ui.tab;
   if (saved && saved.size) restoreFields(app, saved);
+  restoreScroll(app, scroll);
+  restoreDraft(app);
 }

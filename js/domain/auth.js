@@ -76,6 +76,7 @@ async function submitAuth() {
     await doc('profiles/' + id).update({ email: login }).catch(() => {});
   }
   ui.authMsg = '';
+  clearDraft();
   startSession(id);
 }
 

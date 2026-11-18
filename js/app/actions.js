@@ -149,6 +149,7 @@ async function submitCreateCompany() {
   const { addr, error } = readAddress('ob');
   if (error) return say(error);
   await createCompany(name, addr);
+  clearDraft();
   say('Empresa criada! Agora cadastre os aparelhos da empresa.');
 }
 
@@ -156,6 +157,7 @@ async function submitJoinRequest() {
   const companyId = $('#ob_company').value;
   if (!companyId) return say('Selecione a empresa.');
   await requestJoin(companyId, $('#ob_role').value);
+  clearDraft();
   say('Pedido enviado ao administrador.');
 }
 
@@ -557,6 +559,7 @@ const ACTIONS_BY_DATA = {
   av: (v) => { ui.agendaView = v; render(); },
   agday: (v) => openAgendaDay(+v),
   agtoday: () => openAgendaDay(Date.now()),
+  seeall: () => { ui.showAllWaiting = !ui.showAllWaiting; render(); },
   wst: (v) => { ui.wsStep = v; render(); },
   th: chooseTheme,
   // Contas

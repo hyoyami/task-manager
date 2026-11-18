@@ -481,6 +481,7 @@ def main():
         n += holiday_flow(b, shots_dir)
         n += absent_flow(b, shots_dir)
         n += after_hours_flow(b, shots_dir)
+        n += mobile_strip_flow(b, shots_dir)
         print(f"OK: {len(r.shots) + n} telas verificadas, sem erros de JavaScript.")
         b.close()
 
@@ -1272,6 +1273,84 @@ def after_hours_flow(browser, shots_dir):
     return len(r.shots)
 
 
+def mobile_strip_flow(browser, shots_dir):
+    """"Tarefas para agendar": lista vertical no celular (3 + "Ver todas"), contador na aba Tarefas,
+    arrastar pela alça ⠿ com o dedo, e faixa lateral deslizável em tela larga com toque (tablet)."""
+    ctx = browser.new_context(viewport={"width": 412, "height": 915}, device_scale_factor=2, is_mobile=True, has_touch=True,
+                              timezone_id="America/Sao_Paulo", locale="pt-BR")
+    pg = ctx.new_page()
+    pg.clock.set_fixed_time(NOW)
+    r = Run(pg, shots_dir / "celular" if shots_dir else None)
+    if r.shots_dir:
+        r.shots_dir.mkdir(exist_ok=True)
+    pg.goto(INDEX)
+    r.signup("Rita", "rita@teste.com")
+    r.create_company("Faixa Ltda")
+    me = pg.evaluate("state.uid")
+    for i, prio in enumerate(["baixa", "neutra", "alta", "neutra", "baixa"]):
+        r.click("#nfab")
+        pg.fill("#f_t", f"Tarefa {i} {prio}")
+        pg.fill("#f_d", "Teste")
+        pg.select_option("#f_p", prio)
+        pg.check(f'.f_e[value="{me}"]')
+        r.click("#f_go")
+    r.tab("agenda")
+    # Contador na aba Tarefas: 5 esperando aceite.
+    assert pg.inner_text('nav [data-tab="tarefas"] .badge') == "5"
+    # Celular: lista vertical, mais urgente primeiro, só 3 visíveis + "Ver todas".
+    visible = pg.eval_on_selector_all(".strip.waiting .card", "e => e.filter(x => x.offsetParent).map(x => x.querySelector('b').innerText)")
+    assert len(visible) == 3 and "alta" in visible[0], visible
+    assert pg.evaluate("getComputedStyle(document.querySelector('.strip.waiting')).flexDirection") == "column"
+    r.shot("lista-celular")
+    r.click('[data-seeall="1"]')
+    assert pg.eval_on_selector_all(".strip.waiting .card", "e => e.filter(x => x.offsetParent).length") == 5
+    assert "Mostrar menos" in pg.inner_text('[data-seeall="1"]')
+
+    cdp = ctx.new_cdp_session(pg)
+
+    def touch(points):
+        (x0, y0), rest = points[0], points[1:]
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x0, "y": y0}]})
+        for x, y in rest:
+            cdp.send("Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": [{"x": x, "y": y}]})
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+        r.wait(400)
+
+    # Arrastar pela alça ⠿ (toque) até 10:00 agenda a tarefa; o contador diminui.
+    tid = pg.get_attribute(".strip.waiting .card", "data-tid")
+    pg.select_option(f'.dsel[data-i="{tid}"]', "30")
+    r.wait()
+    pg.evaluate("window.scrollTo(0, 0)")
+    pg.set_viewport_size({"width": 412, "height": 2600})  # alça e horário na tela ao mesmo tempo
+    r.wait()
+    grip = pg.locator(f'.strip [data-tid="{tid}"] .drag-handle').bounding_box()
+    target = pg.locator(f'.slot[data-t="{ms(10)}"]').bounding_box()
+    gx, gy = grip["x"] + grip["width"] / 2, grip["y"] + grip["height"] / 2
+    tx, ty = target["x"] + 40, target["y"] + target["height"] / 2
+    touch([(gx, gy)] + [(gx + (tx - gx) * k / 12, gy + (ty - gy) * k / 12) for k in range(1, 13)])
+    t = pg.evaluate(f"state.tasks['{tid}']")
+    assert t["status"] == "agendada" and t["start"] == ms(10), t
+    assert pg.inner_text('nav [data-tab="tarefas"] .badge') == "4"
+
+    # Tablet (tela larga, toque): faixa lateral que desliza em qualquer parte do cartão (até no título).
+    pg.set_viewport_size({"width": 1024, "height": 900})
+    r.wait()
+    assert pg.evaluate("getComputedStyle(document.querySelector('.strip.waiting')).flexDirection") == "row"
+    strip_left = lambda: pg.evaluate("document.querySelector('.strip').scrollLeft")
+    assert pg.evaluate("(() => { const s = document.querySelector('.strip'); return s.scrollWidth > s.clientWidth; })()")
+    first = pg.locator(".strip .card").first
+    for part in (".task-time", ".drag-row b", ".dsel"):
+        pg.evaluate("document.querySelector('.strip').scrollLeft = 0")
+        box = first.locator(part).first.bounding_box()
+        y = box["y"] + box["height"] / 2
+        x0 = box["x"] + box["width"] - 12  # dentro do 1º cartão, longe da alça ⠿
+        touch([(x0, y)] + [(x0 - 20 * k, y) for k in range(1, 11)])
+        assert strip_left() > 100, (part, strip_left())
+    assert not r.errors, r.errors
+    ctx.close()
+    return len(r.shots)
+
+
 def email_confirmation_flow(browser, shots_dir):
     """Tela "Confirme seu e-mail" (após o cadastro) e a página confirmado.html (link do e-mail)."""
     ctx = browser.new_context(viewport={"width": 420, "height": 900}, locale="pt-BR")
@@ -1286,6 +1365,34 @@ def email_confirmation_flow(browser, shots_dir):
     assert "Confirme seu e-mail" in txt and "nova@teste.com" in txt, txt
     r.click("#a_back")
     assert pg.input_value("#a_e") == "nova@teste.com"
+
+    # Celular: recarregar a página (puxar para atualizar / aba descartada) não apaga o cadastro (só a senha).
+    if not pg.query_selector("#a_n"):
+        r.click("#a_mode")
+    for sel, v in [("#a_n", "Maria"), ("#a_u", "maria"), ("#a_e", "maria@teste.com"), ("#a_p", "segredo1")]:
+        pg.fill(sel, v)
+    pg.evaluate("renderLoggedOut()")  # redesenho da mesma tela mantém tudo, inclusive a senha
+    assert pg.input_value("#a_p") == "segredo1" and pg.input_value("#a_n") == "Maria"
+    pg.reload()
+    pg.wait_for_selector("#a_n")
+    assert [pg.input_value(s) for s in ("#a_n", "#a_u", "#a_e", "#a_p")] == ["Maria", "maria", "maria@teste.com", ""]
+    assert "segredo1" not in (pg.evaluate("sessionStorage.getItem('tm_draft')") or "")
+    assert pg.evaluate("getComputedStyle(document.documentElement).overscrollBehaviorY") == "none"
+    pg.fill("#a_p", "123456")
+    pg.check("#a_k")
+    r.click("#a_go")
+    pg.wait_for_selector("#ob_cn")
+    assert pg.evaluate("sessionStorage.getItem('tm_draft')") is None  # cadastro feito: rascunho apagado
+    # Criar empresa: o rascunho volta após recarregar (e o CEP refaz a busca de cidade/UF).
+    pg.fill("#ob_cn", "Empresa Rascunho")
+    r.fill_address(num="42")
+    pg.reload()
+    pg.wait_for_selector("#ob_cn")
+    pg.wait_for_function("document.querySelector('#ob_cid').value === 'São Paulo'")
+    assert pg.input_value("#ob_cn") == "Empresa Rascunho" and pg.input_value("#ob_num") == "42"
+    r.click("#ob_create")
+    pg.wait_for_selector("#cs_done")
+    assert pg.evaluate("sessionStorage.getItem('tm_draft')") is None
 
     page = (ROOT / "confirmado.html").as_uri()
     pg.goto(page + "#access_token=abc&refresh_token=def&type=signup")
@@ -1359,7 +1466,7 @@ def extra_flows(r):
     pg.set_viewport_size({"width": 420, "height": 2000})  # cartão e horário visíveis ao mesmo tempo
     r.wait()
     slot = pg.locator(f'.slot[data-t="{ms(14)}"]')
-    handle = pg.locator(f'.strip [data-tid="{vpn}"] .drag-handle').bounding_box()
+    handle = pg.locator(f'.strip [data-tid="{vpn}"] .drag-row').bounding_box()
     pg.mouse.move(handle["x"] + 20, handle["y"] + 10)
     pg.mouse.down()
     target = slot.bounding_box()

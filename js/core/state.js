@@ -46,6 +46,8 @@ const ui = {
   agendaDay: startOfDay(Date.now()),
   /** Visão da agenda: 'dia' | 'semana' | 'mes'. */
   agendaView: 'dia',
+  /** Celular: lista "Tarefas para agendar" expandida (Ver todas). */
+  showAllWaiting: false,
   /** Resultado da consulta de CEP por formulário (prefixo → endereço do ViaCEP). */
   cepLookup: {},
   /** Sugestão de reorganização pendente de aprovação: [{task, start}]. */
