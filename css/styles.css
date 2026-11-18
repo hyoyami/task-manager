@@ -389,6 +389,13 @@ body:has(.fab.show) main { padding-bottom: 88px; }
 .slot.hot { outline: 2px solid var(--accent); background: var(--accent-soft); color: var(--text); }
 .blocked { opacity: .7; background: var(--accent-soft); color: var(--muted); font-size: 13px; }
 
+/* Aparelho da tarefa em destaque, logo abaixo do título. */
+.dev-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; margin: 6px 0 4px; padding: 4px 10px;
+  border: 1px solid var(--border); border-radius: 99px; background: var(--accent-soft); font-size: 14px; line-height: 1.3; }
+.dev-chip b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dev-chip .cat-icon { width: 18px; height: 18px; margin: 0; }
+.dev-chip-area { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.dev-chip-area::before { content: '· '; }
 .strip { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; scroll-snap-type: x proximity;
   -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
 .strip .card { min-width: 230px; max-width: 260px; flex: 0 0 auto; margin-bottom: 0; scroll-snap-align: start; }
@@ -610,6 +617,7 @@ main.wide { max-width: 1180px; }
 .device-status { color: var(--muted); font-weight: 600; margin-top: 4px; }
 .device-meta { font-size: 12px; margin-top: 6px; }
 .device-card button { margin-top: 10px; }
+.device-actions { justify-content: center; gap: 8px; }
 .device-card.has-alert { border-color: var(--warning); }
 .device-card.late { border-color: var(--danger); }
 .device-alert { margin-top: 8px; padding: 6px 10px; border-radius: 10px; font-size: 13px; text-align: left;

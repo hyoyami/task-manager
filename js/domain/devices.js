@@ -79,6 +79,41 @@ async function createDevice({ name, ip, area }) {
   await ref.set(device);
 }
 
+/**
+ * Troca nome, IP e/ou categoria do aparelho e registra no log o que mudou.
+ * As tarefas abertas ligadas a ele (que o usuário pediu ou executa) passam a mostrar os dados novos.
+ * Devolve false se nada mudou.
+ */
+async function updateDeviceData(id, { name, ip, area }) {
+  const d = state.devices[id];
+  if (!d) return false;
+  const changes = [];
+  const patch = {};
+  if (name !== d.name) { changes.push('nome "' + d.name + '" → "' + name + '"'); patch.name = name; }
+  if (ip !== (d.ip || '')) { changes.push('IP ' + (d.ip || '—') + ' → ' + ip); patch.ip = ip; }
+  if (area !== d.area) { changes.push('categoria ' + d.area + ' → ' + area); patch.area = area; }
+  if (!changes.length) return false;
+  await addDeviceLog(id, 'Dados alterados: ' + changes.join('; ') + ' (por ' + nameOf(state.uid) + ')', patch);
+  // Na organização de quem editou: sai do grupo da categoria antiga e vai para o da nova (criado, se não houver).
+  if (patch.area && Array.isArray(state.me?.ws?.layout)) {
+    const layout = myLayoutCopy();
+    const where = locateDevice(layout, id);
+    if (where?.group?.cat === d.area) {
+      const at = layout.indexOf(where.group);
+      const next = detachDevice(layout, id);
+      const target = next.find((x) => x.type === 'group' && x.cat === area);
+      if (target) target.items.unshift(id);
+      else next.splice(at + 1, 0, { type: 'group', id: newGroupId(), name: area, cat: area, items: [id] });
+      await saveLayout(next);
+    }
+  }
+  const snapshot = { ...(patch.name ? { devName: name } : {}), ...(patch.ip ? { devIp: ip } : {}), ...(patch.area ? { devArea: area } : {}) };
+  for (const t of allTasks().filter((x) => x.dev === id && !FINISHED.includes(x.status) && (x.emp === state.uid || x.req === state.uid))) {
+    await silentTaskUpdate(t.id, snapshot);
+  }
+  return true;
+}
+
 async function deleteDevice(id) {
   delete state.myDevices[id];
   delete state.devices[id];

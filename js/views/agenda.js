@@ -143,10 +143,11 @@ function agendaToolbar() {
 function calItem({ task: t, s }, canControl) {
   const masked = isMasked(t, canControl);
   const prog = t.status === 'programada';
+  const dev = taskDevice(t);
   return '<div class="cal-item prio-' + t.prio + when(t.status === 'concluida', ' done') + when(prog, ' prog') + '">'
     + '<span class="cal-time">' + (prog ? 'Prog.' : fmtTime(s)) + '</span> '
-    + '<span class="cal-title" title="' + (masked ? 'Ocupado' : esc(t.title)) + '">'
-    + (masked ? 'Ocupado' : esc(t.title.replace(/^Manutenção: /, ''))) + '</span></div>';
+    + '<span class="cal-title" title="' + (masked ? 'Ocupado' : esc(t.title) + when(dev, ' — ' + esc(dev?.name))) + '">'
+    + (masked ? 'Ocupado' : esc(t.title.replace(/^Manutenção: /, '')) + when(dev, ' · <b>' + esc(dev?.name) + '</b>')) + '</span></div>';
 }
 
 function weekView(emp, canControl) {
@@ -301,7 +302,8 @@ function runningPanel(running, canControl) {
 function runningDetail(t, canControl) {
   const now = Date.now();
   const end = taskEnd(t);
-  const pct = Math.max(0, Math.min(100, Math.round(((now - t.start) / (end - t.start)) * 100)));
+  // Progresso no total da tarefa (conta os trechos antes das pausas).
+  const pct = Math.max(0, Math.min(100, Math.round((workedMin(t, now) / t.dur) * 100)));
   const late = now > end;
   const device = t.dev ? state.devices[t.dev] : null;
   const item = (label, value) => '<dt>' + label + '</dt><dd>' + value + '</dd>';
@@ -311,10 +313,12 @@ function runningDetail(t, canControl) {
     + ' title="Ir para a tarefa na agenda">'
     + taskTimeHeader(t)
     + '<div class="progress" role="progressbar" aria-valuenow="' + pct + '" aria-valuemin="0" aria-valuemax="100"><span style="width:' + pct + '%"></span></div>'
-    + '<div class="row between muted"><span>Em execução há ' + fmtDuration(now - (t.startedAt || t.start)) + '</span>'
+    + '<div class="row between muted"><span>' + (t.worked ? 'Trabalhado: ' + fmtDuration(workedMin(t, now) * MIN)
+      : 'Em execução há ' + fmtDuration(now - (t.startedAt || t.start))) + '</span>'
     + '<span class="' + when(late, 'error') + '">' + (late ? 'Atrasada ' + fmtDuration(now - end) : 'Faltam ' + fmtDuration(end - now)) + '</span></div>'
     + '<hr class="card-sep">'
     + '<div class="row between"><h3 class="detail-title">' + esc(t.title) + '</h3><span>' + statusTags(t) + '</span></div>'
+    + deviceChip(t)
     + when(t.desc, '<p class="detail-desc pre-wrap">' + esc(t.desc) + '</p>')
     + '<dl class="detail-list">'
     + item('Solicitante', esc(nameOf(t.req)))

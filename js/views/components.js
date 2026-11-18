@@ -39,10 +39,27 @@ const statusTags = (t) => tag(isOpenTask(t) && t.status !== 'programada' ? 'Aber
   + ' ' + tag(PRIORITY_LABEL[t.prio]) + when(t.dev, ' ' + tag('Manutenção'))
   + (t.rec ? ' ' + tag('Periódica · ' + recurrenceLabel(t.rec)) : '');
 
-const deviceLine = (t) => when(t.dev, '<div class="muted">Aparelho: ' + esc(t.devName || '')
-  + when(t.devArea, ' (' + esc(t.devArea) + ')')
-  + when(t.devIp, ' · IP ' + esc(t.devIp))
-  + when(t.preset, ' · Tarefa: ' + esc(t.preset)) + '</div>');
+/** Nome e categoria atuais do aparelho da tarefa (ou os gravados nela, se o aparelho foi excluído). */
+function taskDevice(t) {
+  if (!t.dev && !t.devName) return null;
+  const d = state.devices[t.dev];
+  return { name: d?.name || t.devName || '', area: d?.area || t.devArea || '', ip: d?.ip || t.devIp || '' };
+}
+
+/** Aparelho em evidência, logo abaixo do título (ícone da categoria + nome em negrito). */
+function deviceChip(t) {
+  const dev = taskDevice(t);
+  if (!dev) return '';
+  return '<div class="dev-chip">' + categoryIcon(categoryByName(dev.area)) + '<b>' + esc(dev.name) + '</b>'
+    + when(dev.area, '<span class="dev-chip-area">' + esc(dev.area) + '</span>') + '</div>';
+}
+
+/** Detalhes do aparelho (o nome já aparece em destaque no deviceChip). */
+function deviceLine(t) {
+  const dev = taskDevice(t);
+  if (!dev || (!dev.ip && !t.preset)) return '';
+  return '<div class="muted">' + [dev.ip && 'IP ' + esc(dev.ip), t.preset && 'Problema: ' + esc(t.preset)].filter(Boolean).join(' · ') + '</div>';
+}
 
 function durationSelect(t) {
   const options = [...DURATION_OPTIONS];
@@ -93,7 +110,8 @@ function taskButtons(t, canControl, { withHistory = true } = {}) {
  * acompanha o +15/−15 min). Sem horário ainda: "Horário a definir".
  */
 function taskTimeHeader(t) {
-  const dur = when(t.dur, '<span class="tt-dur">' + t.dur + ' min</span>');
+  const left = t.worked && !FINISHED.includes(t.status) ? remainingMin(t) : 0;
+  const dur = when(t.dur, '<span class="tt-dur">' + (left ? 'faltam ' + left + ' de ' + t.dur : t.dur) + ' min</span>');
   if (t.status === 'programada') {
     return '<div class="task-time"><span class="tt-item"><span class="tt-label">Próxima manutenção</span><b>'
       + new Date(t.want).toLocaleDateString('pt-BR') + '</b></span>' + dur + '</div><hr class="card-sep">';
@@ -101,7 +119,9 @@ function taskTimeHeader(t) {
   if (!t.start || !t.dur) return '<div class="task-time"><span class="tt-none">Horário a definir</span>' + dur + '</div><hr class="card-sep">';
   const done = t.status === 'concluida';
   const item = (label, ms) => '<span class="tt-item"><span class="tt-label">' + label + '</span><b>' + fmtTime(ms) + '</b></span>';
-  return '<div class="task-time">' + item(t.status === 'andamento' || t.status === 'pausada' || done ? 'Iniciada' : 'Início', t.start)
+  const startLabel = t.status === 'pausada' ? 'Restante reservado' : t.status === 'andamento' ? (t.resumedAt ? 'Retomada' : 'Iniciada')
+    : done ? 'Iniciada' : 'Início';
+  return '<div class="task-time">' + item(startLabel, t.start)
     + '<span class="tt-arrow" aria-hidden="true">→</span>'
     + item(done ? 'Término' : 'Previsão de término', taskEnd(t)) + dur + '</div>'
     + '<hr class="card-sep">';
@@ -115,6 +135,7 @@ function taskCard(t, { canControl = false, masked = false, draggable = false } =
   return '<div class="card prio-' + t.prio + when(t.status === 'andamento', ' running') + '" data-tid="' + t.id + '">'
     + taskTimeHeader(t)
     + '<div class="row between' + when(drag, ' drag-row') + '"><b>' + when(drag, GRIP) + esc(t.title) + '</b><span>' + statusTags(t) + '</span></div>'
+    + deviceChip(t)
     + when(t.desc, '<div class="muted">' + esc(t.desc) + '</div>')
     + deviceLine(t)
     + '<div class="muted">' + (t.start ? fmtDay(t.start) : 'Sem horário') + ' · ' + (t.dur ? t.dur + ' min' : 'duração a definir') + ' · ' + esc(who) + '</div>'
@@ -135,6 +156,7 @@ const GRIP = '<span class="drag-handle" title="Arrastar para um horário" aria-h
 const dragCard = (t) => '<div class="card prio-' + t.prio + when(ui.selectedTask === t.id, ' selected') + '" data-tid="' + t.id + '">'
   + taskTimeHeader(t)
   + '<div class="row between drag-row"><b>' + GRIP + esc(t.title) + '</b>' + tag(PRIORITY_LABEL[t.prio]) + '</div>'
+  + deviceChip(t)
   + when(t.desc, '<div class="muted">' + esc(t.desc) + '</div>')
   + deviceLine(t)
   + '<div class="muted">de ' + esc(nameOf(t.req)) + '</div>'
@@ -151,6 +173,7 @@ function openTaskCard(t) {
   return '<div class="card prio-' + t.prio + ' open-task" data-tid="' + t.id + '">'
     + taskTimeHeader(t)
     + '<div class="row between"><b>' + esc(t.title) + '</b>' + tag(PRIORITY_LABEL[t.prio]) + '</div>'
+    + deviceChip(t)
     + '<div class="row gap-sm mt-6">' + tag('Aberta para a equipe') + when(t.cat, ' ' + tag(esc(t.cat))) + '</div>'
     + when(t.desc, '<div class="muted mt-6">' + esc(t.desc) + '</div>')
     + deviceLine(t)
@@ -163,6 +186,7 @@ function openTaskCard(t) {
 /** Linha da aba Tarefas › Histórico (abre detalhes ao tocar). */
 const finishedRow = (t) => '<div class="card clickable prio-' + t.prio + '" data-open="' + t.id + '">'
   + '<div class="row between"><b>' + esc(t.title) + '</b>' + tag(STATUS_LABEL[t.status]) + '</div>'
+  + deviceChip(t)
   + '<div class="muted">' + fmtDateTime(finishedAt(t)) + ' · '
   + esc(t.emp === state.uid ? 'de ' + nameOf(t.req) : 'para ' + nameOf(t.emp)) + '</div></div>';
 
@@ -187,8 +211,10 @@ function deviceCard(d, own) {
     + ' <span class="status-dot" style="background:' + st.color + ';box-shadow:0 0 8px ' + st.color + '"></span></div>'
     + '<div class="muted device-meta">' + esc(d.area) + '</div>'
     + each(alerts, (a) => '<div class="device-alert" role="status"><b>Aviso:</b> ' + esc(a.prob) + ' — ' + alertText(a) + '</div>')
-    + '<button class="small" ' + (own ? 'data-dev' : 'data-rodev') + '="' + d.id + '">'
-    + (own ? 'Abrir / Log' : 'Ver log') + '</button></div>';
+    + '<div class="row device-actions"><button class="small" ' + (own ? 'data-dev' : 'data-rodev') + '="' + d.id + '">'
+    + (own ? 'Abrir / Log' : 'Ver log') + '</button>'
+    + when(own, '<button class="small" data-devedit="' + d.id + '" aria-label="Editar dados do aparelho">✎ Editar</button>')
+    + '</div></div>';
 }
 
 const emptyCard = (text, center = false) => '<div class="card muted' + when(center, ' empty') + '">' + text + '</div>';

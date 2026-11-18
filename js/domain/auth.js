@@ -255,7 +255,7 @@ function startSession(aid) {
 
     db.collection('companies').onSnapshot((snap) => { raw.companies = mapOf(snap, true); refresh(); syncHolidays(); }, onError),
     db.collection('invites').onSnapshot((snap) => { raw.invites = mapOf(snap, true); refresh(); }, onError),
-    db.collection('tasks').onSnapshot((snap) => { raw.tasks = mapOf(snap); refresh(); activateDueTasks(); }, onError),
+    db.collection('tasks').onSnapshot((snap) => { raw.tasks = mapOf(snap); refresh(); activateDueTasks(); reflowPausedTasks(); }, onError),
 
     db.collection('notifs').where('to', '==', aid).onSnapshot((snap) => {
       const list = snap.docs.map((d) => ({ ...d.data(), _id: d.id }));

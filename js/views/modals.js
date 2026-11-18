@@ -27,7 +27,7 @@ function openTaskInfo(id) {
   const t = state.tasks[id];
   if (!t) return;
   const label = STATUS_LABEL[t.status];
-  openModal('<h2>' + esc(t.title) + '</h2><p>' + tag(label) + ' ' + tag(PRIORITY_LABEL[t.prio]) + '</p>'
+  openModal('<h2>' + esc(t.title) + '</h2>' + deviceChip(t) + '<p>' + tag(label) + ' ' + tag(PRIORITY_LABEL[t.prio]) + '</p>'
     + '<label>Descrição atribuída</label><div>' + esc(t.desc || '—') + '</div>'
     + '<label>Solicitante → Funcionário</label><div>' + esc(nameOf(t.req)) + ' → ' + esc(nameOf(t.emp)) + '</div>'
     + '<label>Horário agendado</label><div>' + timeRange(t, 'Não chegou a ser agendada') + when(t.dur, ' · ' + t.dur + ' min') + '</div>'
@@ -41,7 +41,7 @@ function openTaskInfo(id) {
 function openCompleteTask(id) {
   const t = state.tasks[id];
   if (!t) return;
-  openModal('<h2>Concluir tarefa</h2><div class="card prio-' + t.prio + '"><b>' + esc(t.title) + '</b>'
+  openModal('<h2>Concluir tarefa</h2><div class="card prio-' + t.prio + '"><b>' + esc(t.title) + '</b>' + deviceChip(t)
     + '<div class="muted">' + esc(t.desc || '') + '</div>'
     + '<div class="muted">' + when(t.start, timeRange(t) + ' · ') + t.dur + ' min · de ' + esc(nameOf(t.req)) + '</div></div>'
     + '<label>' + (t.dev ? 'Relato da manutenção (vai para o log do aparelho)' : 'Resumo da tarefa — como foi a execução?') + '</label>'
@@ -67,6 +67,44 @@ function openDevice(id) {
     + deviceLogPreview(d)
     + when(canDeleteDevice(d), '<p><button class="small danger" data-devdel="' + d.id + '">Excluir aparelho</button></p>')
     + closeButton());
+}
+
+/** Editar dados do aparelho (nome, IP e categoria) e excluir. */
+function openDeviceEdit(id) {
+  const d = state.devices[id];
+  if (!d) return;
+  ui.modal.deviceEdit = id;
+  // Funcionário: só as categorias da sua função (senão o aparelho sumiria da Área de Trabalho dele).
+  const cats = myCategories();
+  if (!cats.some((c) => c.name === d.area)) cats.push({ name: d.area });
+  openModal('<h2>Editar aparelho</h2>'
+    + '<label for="de_n">Nome</label><input type="text" id="de_n" maxlength="60" value="' + esc(d.name) + '">'
+    + '<label for="de_i">IP</label><input type="text" id="de_i" inputmode="decimal" value="' + esc(d.ip || '') + '" placeholder="Ex.: 192.168.0.25">'
+    + '<label for="de_a">Categoria</label><select id="de_a">'
+    + each(cats, (c) => '<option' + when(c.name === d.area, ' selected') + '>' + esc(c.name) + '</option>') + '</select>'
+    + '<p class="muted">As alterações ficam registradas no log do aparelho.</p>'
+    + '<div class="row between mt-12"><button id="dn_no">Cancelar</button><button class="primary" id="de_ok">Salvar</button></div>'
+    + '<div class="danger-zone card mt-12"><b>Excluir aparelho</b>'
+    + (canDeleteDevice(d)
+      ? '<p class="muted">Apaga o aparelho e todo o log dele. Não dá para desfazer.</p>'
+        + '<p class="mb-0"><button class="small danger" data-devdel="' + d.id + '">Excluir aparelho</button></p>'
+      : '<p class="muted mb-0">Só quem cadastrou (' + esc(nameOf(d.owner)) + ') ou o administrador pode excluir.</p>')
+    + '</div>');
+  setTimeout(() => $('#de_n')?.focus(), 50);
+}
+
+/** Confirmação antes de excluir o aparelho. */
+function openDeviceDeleteConfirm(id) {
+  const d = state.devices[id];
+  if (!d) return;
+  ui.modal.deviceDelete = id;
+  const open = allTasks().filter((t) => t.dev === id && !FINISHED.includes(t.status)).length;
+  openModal('<h2>Excluir aparelho?</h2>'
+    + '<p>O aparelho <b>' + esc(d.name) + '</b> (' + esc(d.area) + ' · IP ' + esc(d.ip || '—') + ') e todo o log dele serão apagados.</p>'
+    + when(open, '<p class="muted">Há ' + plural(open, 'tarefa aberta ligada', 'tarefas abertas ligadas') + ' a ele; elas continuam, sem o aparelho.</p>')
+    + '<p class="muted">Não dá para desfazer.</p>'
+    + '<div class="row between mt-12"><button id="dn_no">Cancelar</button>'
+    + '<button class="primary delete-solid" id="dx_ok">Excluir</button></div>');
 }
 
 /** Aparelho de outra pessoa (solicitante): somente leitura. */
@@ -221,19 +259,21 @@ function openGroupRename(groupId, isNew = false) {
 }
 
 /** Iniciar fora do expediente: só com confirmação (a tarefa entra na agenda de hoje, fora do horário). */
-function openStartOutsideHours(id) {
+function openStartOutsideHours(id, action = 'iniciar') {
   const t = state.tasks[id];
   if (!t) return;
   const p = profileOf(t.emp);
+  const verb = action === 'retomar' ? 'Retomar' : 'Iniciar';
   ui.modal.startTaskId = id;
-  openModal('<h2>Iniciar fora do expediente?</h2>'
+  ui.modal.startAction = action;
+  openModal('<h2>' + verb + ' fora do expediente?</h2>'
     + '<p>Seu horário de trabalho é <b>' + esc(p.start) + '–' + esc(p.end) + '</b> e agora são <b>' + fmtTime(Date.now()) + '</b>'
     + (isOutsideWorkHours({ ...p, start: '00:00', end: '23:59' }, Date.now()) ? ' (dia de folga ou feriado)' : '') + '.</p>'
-    + '<div class="card prio-' + t.prio + '"><b>' + esc(t.title) + '</b>'
+    + '<div class="card prio-' + t.prio + '"><b>' + esc(t.title) + '</b>' + deviceChip(t)
     + '<div class="muted">' + (t.start ? 'Agendada para ' + fmtDayTime(t.start) : 'Sem horário') + when(t.dur, ' · ' + t.dur + ' min') + '</div></div>'
-    + '<p class="muted">Se iniciar agora, ela sai desse horário e entra na agenda de hoje, fora do expediente.</p>'
+    + '<p class="muted">Se ' + verb.toLowerCase() + ' agora, ela sai desse horário e entra na agenda de hoje, fora do expediente.</p>'
     + '<div class="row between mt-12"><button id="dn_no">Cancelar</button>'
-    + '<button class="primary" id="so_ok">Iniciar agora</button></div>');
+    + '<button class="primary" id="so_ok">' + verb + ' agora</button></div>');
 }
 
 // ---------- Ausência ----------
@@ -245,7 +285,8 @@ function openAbsentConfirm() {
     + '<p>Hoje, <b>' + esc(new Date(day).toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' }))
     + '</b>, ficará como <b>ausente</b> na sua agenda. Só este dia.</p>'
     + (list.length ? '<p class="muted">Estas tarefas vão para o dia seguinte (primeiro horário livre, pela urgência):</p>'
-      + '<div class="history">' + each(list, (t, i) => when(i, '<br>') + fmtTime(t.start) + ' — ' + esc(t.title)) + '</div>'
+      + '<div class="history">' + each(list, (t, i) => when(i, '<br>') + fmtTime(t.start) + ' — ' + esc(t.title)
+        + when(t.dev, ' · <b>' + esc(taskDevice(t)?.name || '') + '</b>')) + '</div>'
       : '<p class="muted">Você não tem tarefas agendadas para hoje.</p>')
     + when(running.length, '<p class="muted">Tarefas já iniciadas (em andamento ou pausadas) não são movidas.</p>')
     + '<p class="muted">Quem pediu as tarefas é avisado do novo horário.</p>'

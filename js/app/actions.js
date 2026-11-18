@@ -62,10 +62,28 @@ async function confirmCategoryDelete() {
 async function deleteDeviceFromModal(id) {
   const d = state.devices[id];
   if (!d || !canDeleteDevice(d)) return say('Só quem cadastrou o aparelho ou o administrador pode excluí-lo.');
-  if (!confirm('Excluir o aparelho "' + d.name + '" e todo o seu log?')) return;
+  openDeviceDeleteConfirm(id);
+}
+
+async function confirmDeviceDelete(btn) {
+  const id = ui.modal.deviceDelete;
+  btn.disabled = true;
   closeModal();
   await deleteDevice(id);
   say('Aparelho excluído.');
+  render();
+}
+
+async function saveDeviceEdit(btn) {
+  const id = ui.modal.deviceEdit;
+  const name = $('#de_n').value.trim();
+  const ip = $('#de_i').value.trim();
+  if (!name) return say('Informe o nome do aparelho.');
+  if (!isValidIp(ip)) return say('Informe um IP válido (ex.: 192.168.0.25).');
+  btn.disabled = true;
+  const changed = await updateDeviceData(id, { name, ip, area: $('#de_a').value });
+  closeModal();
+  say(changed ? 'Dados do aparelho salvos.' : 'Nada foi alterado.');
   render();
 }
 
@@ -545,7 +563,15 @@ const ACTIONS_BY_ID = {
   wk_go: saveWeeklyOff,
   o_go: addTimeOff,
   ab_open: openAbsentConfirm,
-  so_ok: async (btn) => { btn.disabled = true; const id = ui.modal.startTaskId; closeModal(); await taskAction(id, 'iniciar'); render(); },
+  de_ok: saveDeviceEdit,
+  dx_ok: confirmDeviceDelete,
+  so_ok: async (btn) => {
+    btn.disabled = true;
+    const { startTaskId: id, startAction: action } = ui.modal;
+    closeModal();
+    await taskAction(id, action || 'iniciar');
+    render();
+  },
   ab_ok: confirmAbsentToday,
 };
 
@@ -572,7 +598,7 @@ const ACTIONS_BY_DATA = {
     if (v === 'concluir') return openCompleteTask(btn.dataset.i);
     // Iniciar fora do expediente só com confirmação (senão a tarefa entraria hoje, depois do horário).
     const t = state.tasks[btn.dataset.i];
-    if (v === 'iniciar' && t && isOutsideWorkHours(profileOf(t.emp), Date.now())) return openStartOutsideHours(t.id);
+    if ((v === 'iniciar' || v === 'retomar') && t && isOutsideWorkHours(profileOf(t.emp), Date.now())) return openStartOutsideHours(t.id, v);
     return taskAction(btn.dataset.i, v);
   },
   d: (v, btn) => changeDuration(btn.dataset.i, +v),
@@ -589,6 +615,7 @@ const ACTIONS_BY_DATA = {
   lg: addDeviceNote,
   ddel: armDeviceDelete,
   devdel: deleteDeviceFromModal,
+  devedit: (v) => openDeviceEdit(v),
   csdel: async (v) => { await deleteDevice(v); say('Aparelho removido.'); render(); },
   cat: (v) => openCategory(v),
   cdel: (v) => openCategoryDelete(v),

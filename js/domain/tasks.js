@@ -212,8 +212,10 @@ async function acceptTask(t) {
  * Agenda `t` no primeiro horário livre considerando só as tarefas iniciadas e as agendadas de
  * urgência igual ou maior; as agendadas de urgência menor que ficarem no caminho são empurradas
  * para depois. Devolve false se não houver horário na semana.
+ * `status`: 'agendada' (padrão) ou 'pausada' (reserva do tempo que falta). `histText`/`noteText` null:
+ * sem histórico/aviso (reajuste silencioso da reserva de uma pausada).
  */
-async function placeByPriority(t, histText, noteText) {
+async function placeByPriority(t, histText, noteText, status = 'agendada') {
   const rank = PRIORITY_ORDER[t.prio];
   const isLower = (o) => o.status === 'agendada' && PRIORITY_ORDER[o.prio] > rank;
   const fixed = allTasks()
@@ -221,11 +223,19 @@ async function placeByPriority(t, histText, noteText) {
     .map((o) => ({ s: o.start, e: taskEnd(o) }));
   const s = nextSlotFor(t, fixed);
   if (!s) return false;
-  await commitTask(t.id, { status: 'agendada', start: s, initial: t.initial || s }, histText(s));
-  notify(t.req, noteText(s));
+  const patch = { status, start: s, initial: t.initial || s };
+  if (histText) await commitTask(t.id, patch, histText(s));
+  else await silentTaskUpdate(t.id, patch);
+  if (noteText) notify(t.req, noteText(s));
   const displaced = allTasks().filter((o) => o.emp === t.emp && o.id !== t.id && isLower(o) && taskEnd(o) > s);
-  await pushBackLowerPriority(t, displaced, [...fixed, { s, e: s + t.dur * MIN }]);
+  await pushBackLowerPriority(t, displaced, [...fixed, { s, e: s + remainingMin(t) * MIN }]);
   return true;
+}
+
+/** Atualiza a tarefa sem entrada no histórico (reajustes automáticos repetidos). */
+async function silentTaskUpdate(id, patch) {
+  state.tasks[id] = { ...state.tasks[id], ...patch };
+  await doc('tasks/' + id).update(patch);
 }
 
 /**
@@ -238,9 +248,9 @@ async function pushBackLowerPriority(urgent, displaced, busy) {
       busy.push({ s: o.start, e: taskEnd(o) }); // não colide: fica onde está
       continue;
     }
-    const s = findSlot(profileOf(o.emp), busy, o.dur, Math.max(Date.now(), o.want || 0, o.start));
+    const s = findSlot(profileOf(o.emp), busy, remainingMin(o), Math.max(Date.now(), o.want || 0, o.start));
     if (s) {
-      busy.push({ s, e: s + o.dur * MIN });
+      busy.push({ s, e: s + remainingMin(o) * MIN });
       await commitTask(o.id, { status: 'agendada', start: s, initial: o.initial || o.start },
         'Reorganizada por prioridade (' + quote(urgent) + ' é mais urgente): ' + fmtDayTime(s));
       notify(o.req, 'Tarefa ' + quote(o) + ' reagendada por prioridade: ' + fmtDayTime(s));
@@ -253,16 +263,82 @@ async function pushBackLowerPriority(urgent, displaced, busy) {
 /** Iniciar antes do horário: puxa a tarefa para agora e desloca as que colidirem. */
 async function startEarly(t) {
   const now = Date.now();
-  const end = now + t.dur * MIN;
-  const pausedClash = allTasks().some((o) =>
-    o.emp === t.emp && o.id !== t.id && o.status === 'pausada' && o.start < end && taskEnd(o) > now);
-  if (pausedClash) return say('Esse horário conflita com uma tarefa pausada.');
+  const end = now + remainingMin(t) * MIN;
   for (const o of scheduledOverlapping(t.emp, t.id, now, end)) await requeue(o, 'outra tarefa foi iniciada antes');
   await commitTask(t.id, { status: 'andamento', start: now, startedAt: now, initial: t.initial || t.start },
     'Iniciada antes do previsto (' + fmtTime(now) + '; previsto ' + fmtTime(t.start) + ')');
   await markDeviceStarted(t);
   notify(t.req, 'Tarefa ' + quote(t) + ' iniciada');
+  await reflowPausedTasks(); // a pausada que estava reservada aqui vai para depois
   await scheduleWaiting(t.emp);
+}
+
+// ---------- Pausar / retomar ----------
+// Ao pausar, `worked` guarda os minutos já feitos e a tarefa reserva na agenda só o que falta, no
+// próximo horário livre (pela urgência). Outra tarefa pode ser iniciada no lugar; a pausada só volta
+// a andar com "Retomar" e, enquanto isso, a reserva é sempre reajustada (ver reflowPausedTasks).
+
+/** Minutos do trecho em andamento (desde que iniciou ou foi retomada). */
+const runningSegmentMin = (t, now = Date.now()) =>
+  (t.status === 'andamento' ? Math.max(0, Math.round((now - (t.resumedAt || t.startedAt || t.start || now)) / MIN)) : 0);
+
+/** Minutos já trabalhados na tarefa (trechos anteriores + o atual). */
+const workedMin = (t, now = Date.now()) => (t.worked || 0) + runningSegmentMin(t, now);
+
+async function pauseTask(t) {
+  const now = Date.now();
+  const worked = Math.min(t.dur, workedMin(t, now));
+  const left = Math.max(SLOT_ROUND, t.dur - worked);
+  await commitTask(t.id, { status: 'pausada', worked, pausedAt: now, start: now },
+    'Pausada (' + worked + ' de ' + t.dur + ' min feitos; faltam ' + left + ' min)');
+  notify(t.req, 'Tarefa ' + quote(t) + ' pausada');
+  await placePaused(state.tasks[t.id], true);
+}
+
+/** Reserva o tempo que falta da pausada no próximo horário livre. `announce`: registra no histórico. */
+async function placePaused(t, announce = false) {
+  const ok = await placeByPriority({ ...t, want: 0 }, announce ? (s) => 'Restante reservado para ' + fmtDayTime(s) : null, null, 'pausada');
+  if (!ok && t.start !== null) {
+    if (announce) await commitTask(t.id, { start: null }, 'Sem horário livre nesta semana para o restante');
+    else await silentTaskUpdate(t.id, { start: null });
+  }
+}
+
+async function resumeTask(t) {
+  const now = Date.now();
+  const left = remainingMin(t);
+  for (const o of scheduledOverlapping(t.emp, t.id, now, now + left * MIN)) await requeue(o, 'tarefa pausada foi retomada');
+  await commitTask(t.id, { status: 'andamento', start: now, resumedAt: now }, 'Retomada (faltam ' + left + ' min)');
+  notify(t.req, 'Tarefa ' + quote(t) + ' retomada');
+  await reflowPausedTasks();
+  await scheduleWaiting(t.emp);
+}
+
+/**
+ * Reajusta a reserva das pausadas do usuário logado:
+ * - não vale mais (o horário passou sem retomar, outra tarefa ocupou o lugar, virou folga/feriado/fora do
+ *   expediente, ou ainda sem horário) → vai para o próximo horário livre, pela urgência;
+ * - abriu um horário livre antes dela (ex.: outra tarefa foi puxada para agora ou concluída antes) → adianta.
+ */
+let reflowingPaused = false;
+async function reflowPausedTasks() {
+  if (reflowingPaused || !state.uid) return;
+  const paused = allTasks().filter((t) => t.emp === state.uid && t.status === 'pausada' && t.dur);
+  if (!paused.length) return;
+  reflowingPaused = true;
+  try {
+    for (const p of paused.sort(byPriority((x) => x.pausedAt || x.created))) {
+      const t = state.tasks[p.id];
+      if (!t.start || !fitsAt(t, t.start)) {
+        await placePaused(t);
+        continue;
+      }
+      const earlier = findSlot(profileOf(t.emp), busyIntervals(t.emp, t.id), remainingMin(t), Date.now());
+      if (earlier && earlier < t.start) await silentTaskUpdate(t.id, { start: earlier });
+    }
+  } finally {
+    reflowingPaused = false;
+  }
 }
 
 /** Transições simples: ação → [novo status, texto do histórico]. */
@@ -289,6 +365,8 @@ async function taskAction(id, action, summary) {
   }
   if (action === 'iniciar' && t.start && t.start > Date.now() + MIN) return startEarly(t);
   if (action === 'aceitar') return acceptTask(t);
+  if (action === 'pausar') return pauseTask(t);
+  if (action === 'retomar') return resumeTask(t);
 
   const tr = TRANSITIONS[action];
   if (!tr) return;
@@ -297,9 +375,16 @@ async function taskAction(id, action, summary) {
   let note = '';
 
   if (action === 'iniciar') patch.startedAt = Date.now();
+  if (action === 'cancelar' && t.status === 'pausada') patch.start = t.pausedAt || t.start; // libera a reserva
   if (action === 'concluir') {
     // Concluir antes do previsto encurta a duração e libera o horário.
-    if (t.status === 'andamento' && t.start) {
+    if (t.worked || (t.status === 'pausada' && t.start)) {
+      // Teve pausa: vira um bloco só com o tempo trabalhado, terminando agora (libera a reserva).
+      const now = Date.now();
+      const elapsed = Math.max(1, workedMin(t, now));
+      Object.assign(patch, { dur: elapsed, worked: 0, start: now - elapsed * MIN, ...(elapsed < t.dur ? { planDur: t.dur } : {}) });
+      note = ' (' + elapsed + ' de ' + t.dur + ' min trabalhados)';
+    } else if (t.status === 'andamento' && t.start) {
       const elapsed = Math.max(1, Math.ceil((Date.now() - (t.startedAt || t.start)) / MIN));
       if (elapsed < t.dur) {
         Object.assign(patch, { dur: elapsed, planDur: t.dur });
@@ -323,10 +408,14 @@ async function taskAction(id, action, summary) {
     const extra = action === 'concluir' && summary ? ' — ' + summary.slice(0, 120) : '';
     notify(t.req, 'Tarefa ' + quote(t) + ': ' + label.toLowerCase() + extra);
     // Reencaixar a agenda mexe em tarefas de outros solicitantes: só o próprio funcionário faz.
-    if (t.emp === state.uid) await scheduleWaiting(t.emp);
+    if (t.emp === state.uid) {
+      await scheduleWaiting(t.emp);
+      await reflowPausedTasks();
+    }
   } else if (action === 'iniciar') {
     await markDeviceStarted(t);
     notify(t.req, 'Tarefa ' + quote(t) + ' iniciada');
+    await reflowPausedTasks();
   }
 }
 
@@ -346,10 +435,11 @@ async function changeDuration(id, delta) {
   if (dur === t.dur) return;
   await commitTask(id, { dur }, 'Duração: ' + t.dur + ' → ' + dur + ' min');
   if (!t.start) return;
-  const end = t.start + dur * MIN;
+  const end = t.start + remainingMin({ ...t, dur }) * MIN;
   const clashes = allTasks().filter((o) =>
     o.emp === t.emp && o.id !== id && o.status === 'agendada' && o.start >= t.start && o.start < end);
   for (const o of clashes) await requeue(o, 'duração de outra tarefa mudou');
+  await reflowPausedTasks();
   await scheduleWaiting(t.emp);
 }
 
@@ -428,6 +518,7 @@ async function scheduleNewWeek() {
 async function requeueForTimeOff(isBlocked, reason) {
   const hit = allTasks().filter((t) => t.emp === state.uid && t.status === 'agendada' && isBlocked(t));
   for (const t of hit) await requeue(t, reason);
+  await reflowPausedTasks();
   await scheduleWaiting(state.uid);
 }
 

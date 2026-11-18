@@ -154,9 +154,17 @@ já confirmadas, sem enviar e-mail, e para limpar tudo no final).
   ausência ou feriado) pede confirmação (`openStartOutsideHours()`, `#so_ok`) — é o único jeito de a tarefa entrar
   hoje fora do horário. Toque duplo: um 2º toque no mesmo cartão (data-a / data-d / data-claim) em < 0,7 s é
   ignorado (`isDoubleTap()` em app/events.js), pois o cartão é redesenhado e outro botão ocupa o mesmo lugar.
+- **Pausar** (`pauseTask()`): guarda os minutos feitos em `worked` (+ `pausedAt`) e a tarefa pausada reserva na agenda
+  só o que falta (`remainingMin()`; `taskEnd` usa isso), no próximo horário livre pela urgência. Outra tarefa pode ser
+  iniciada no lugar (a pausada é empurrada). Só volta com "Retomar" (`resumeTask()`: `start`=agora, `resumedAt`).
+  `reflowPausedTasks()` (ao iniciar/concluir/mudar duração/folgas, ao receber tarefas e a cada 30 s) reajusta a reserva:
+  se não vale mais (passou sem retomar, ocupada, fora do expediente) vai para o próximo horário; se abriu espaço antes,
+  adianta (sem histórico). Concluir depois de pausa soma os trechos (`dur` = trabalhado, bloco terminando agora).
 - Uma tarefa em andamento por vez (por funcionário). Iniciar antes do horário puxa a tarefa para agora;
   concluir antes do previsto encurta a duração e libera o horário.
-- Tarefa vinculada a aparelho vira "Manutenção"; o relato da conclusão vai para o log do aparelho.
+- Tarefa vinculada a aparelho vira "Manutenção"; o relato da conclusão vai para o log do aparelho. Em todo cartão de
+  tarefa o aparelho aparece em destaque logo abaixo do título (`deviceChip()`: ícone + nome atual em negrito +
+  categoria; `taskDevice()` usa os dados atuais do aparelho ou, se excluído, os gravados na tarefa).
   Status do aparelho (tudo registrado no log): tarefa criada → "Inoperante" (vermelho) até o funcionário iniciar;
   iniciada (andamento/pausada) → "Em manutenção" (amarelo); ao encerrar, se o status ainda for automático
   (Inoperante/Em manutenção): com outra tarefa aberta, segue o que ela pede; sem nenhuma, concluída → "Operacional",
@@ -196,6 +204,10 @@ já confirmadas, sem enviar e-mail, e para limpar tudo no final).
 - Faixa lateral (telas largas, inclusive tablet): desliza para o lado em qualquer parte do cartão; no toque só a alça ⠿
   (`.drag-handle`) arrasta para um horário (com o mouse, a linha do título `.drag-row` também). `pointercancel` só
   redesenha se havia arrasto (senão interrompia a rolagem); `renderApp` mantém a rolagem das `.strip`.
+- Cartão do aparelho na Área de Trabalho: "✎ Editar" (`openDeviceEdit()`, ids `de_*`) troca nome, IP e categoria
+  (funcionário: só categorias da sua função) → `updateDeviceData()` registra no log, atualiza o nome/IP/categoria
+  nas tarefas abertas ligadas e, na organização de quem editou, move do grupo da categoria antiga para o da nova.
+  Excluir (quem cadastrou ou o admin) pede confirmação (`openDeviceDeleteConfirm()`, `#dx_ok`).
 - O funcionário organiza os aparelhos na Área de Trabalho arrastando (mouse: cartão inteiro; toque: alça ⠿):
   borda de outro aparelho = reordena; meio = cria grupo (ou entra no grupo dele); fora dos grupos = solta.
 - Na aba Aparelhos do **solicitante**, os aparelhos de todos aparecem agrupados por categoria; ele só pode

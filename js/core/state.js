@@ -93,6 +93,9 @@ const ui = {
     doneTaskId: null,
     /** Tarefa a iniciar fora do expediente, aguardando confirmação. */
     startTaskId: null,
+    startAction: null, // 'iniciar' | 'retomar'
+    deviceEdit: null, // aparelho em edição
+    deviceDelete: null, // aparelho aguardando confirmação de exclusão
     category: null,
     /** Problema em edição (índice na lista da categoria). */
     problemIndex: null,

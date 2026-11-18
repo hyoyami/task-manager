@@ -4,8 +4,14 @@
    ========================================================================== */
 'use strict';
 
+/**
+ * Minutos que a tarefa ocupa a partir de `start`. Depois de uma pausa, `worked` guarda o que já foi feito:
+ * o horário reservado (pausada) ou o trecho retomado (andamento) é só o que falta (mín. 15 min).
+ */
+const remainingMin = (t) => (t.worked ? Math.max(SLOT_ROUND, t.dur - t.worked) : t.dur);
+
 /** Fim previsto da tarefa (ms). */
-const taskEnd = (t) => t.start + t.dur * MIN;
+const taskEnd = (t) => t.start + remainingMin(t) * MIN;
 
 /**
  * Semana corrente limitada ao mês corrente: { s, e } (e exclusivo).
@@ -71,7 +77,7 @@ function isOutsideWorkHours(profile, ms) {
 function fitsAt(task, start) {
   const p = profileOf(task.emp);
   const day = startOfDay(start);
-  const end = start + task.dur * MIN;
+  const end = start + remainingMin(task) * MIN;
   if (start < atTime(day, p.start) || end > atTime(day, p.end)) return false;
   if (start < Date.now() - SLOT_ROUND * MIN || isWeeklyOff(p, start) || isHolidayOff(start)) return false;
   const blocks = [...busyIntervals(task.emp, task.id), ...(p.off || []), breakOf(p, day)];
@@ -80,7 +86,7 @@ function fitsAt(task, start) {
 
 /** Primeiro horário livre para uma tarefa, a partir de agora (ou da data desejada). */
 const nextSlotFor = (task, busy) =>
-  findSlot(profileOf(task.emp), busy, task.dur, Math.max(Date.now(), task.want || 0));
+  findSlot(profileOf(task.emp), busy, remainingMin(task), Math.max(Date.now(), task.want || 0));
 
 /** Ordena por prioridade e depois por `key` (mais antigo primeiro). */
 const byPriority = (key) => (a, b) => PRIORITY_ORDER[a.prio] - PRIORITY_ORDER[b.prio] || key(a) - key(b);
@@ -96,7 +102,7 @@ function buildProposal(emp) {
     .sort(byPriority((t) => t.initial || t.created))
     .map((task) => {
       const start = nextSlotFor(task, busy);
-      if (start) busy.push({ s: start, e: start + task.dur * MIN });
+      if (start) busy.push({ s: start, e: start + remainingMin(task) * MIN });
       return { task, start };
     });
 }

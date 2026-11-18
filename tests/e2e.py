@@ -482,6 +482,8 @@ def main():
         n += absent_flow(b, shots_dir)
         n += after_hours_flow(b, shots_dir)
         n += mobile_strip_flow(b, shots_dir)
+        n += pause_flow(b, shots_dir)
+        n += device_edit_flow(b, shots_dir)
         print(f"OK: {len(r.shots) + n} telas verificadas, sem erros de JavaScript.")
         b.close()
 
@@ -787,7 +789,7 @@ def open_task_flow(browser, shots_dir):
 
     # Dev não recebe a da impressora, mas recebe a geral; não consegue assumir a da impressora nem forçando.
     r.login("dani")
-    titles = pg.eval_on_selector_all(".strip .open-task b", "e => e.map(x => x.textContent)")
+    titles = pg.eval_on_selector_all(".strip .open-task > .row.between b", "e => e.map(x => x.textContent)")
     assert titles == ["Organizar cabos"], titles
     forced = pg.evaluate(f"""async () => {{ try {{ await state.db.call('claim_task', {{ task_id: '{t["id"]}' }}); return 'ok'; }}
                                           catch (e) {{ return e.message; }} }}""")
@@ -796,7 +798,7 @@ def open_task_flow(browser, shots_dir):
 
     # Admin vê as duas.
     r.login("lia")
-    titles = sorted(pg.eval_on_selector_all(".strip .open-task b", "e => e.map(x => x.textContent)"))
+    titles = sorted(pg.eval_on_selector_all(".strip .open-task > .row.between b", "e => e.map(x => x.textContent)"))
     assert titles == ["Manutenção: Limpeza", "Organizar cabos"], titles
     r.logout()
 
@@ -829,6 +831,7 @@ def open_task_flow(browser, shots_dir):
     r.tab("workstation")
     r.click(f'[data-dev="{dev}"]')
     r.click(f'[data-devdel="{dev}"]')
+    r.click("#dx_ok")  # confirmação na janela do sistema
     assert pg.locator(f'.device-card[data-did="{dev}"]').count() == 0
     assert not r.errors, r.errors
     ctx.close()
@@ -1346,6 +1349,131 @@ def mobile_strip_flow(browser, shots_dir):
         x0 = box["x"] + box["width"] - 12  # dentro do 1º cartão, longe da alça ⠿
         touch([(x0, y)] + [(x0 - 20 * k, y) for k in range(1, 11)])
         assert strip_left() > 100, (part, strip_left())
+    assert not r.errors, r.errors
+    ctx.close()
+    return len(r.shots)
+
+
+def pause_flow(browser, shots_dir):
+    """Pausar: reserva só o que falta, outra tarefa entra no lugar, a reserva se reajusta e "Retomar" continua de onde parou."""
+    ctx = browser.new_context(viewport={"width": 420, "height": 1400}, timezone_id="America/Sao_Paulo", locale="pt-BR")
+    pg = ctx.new_page()
+    at = lambda h, m=0: pg.clock.set_fixed_time(datetime(2026, 11, 11, h, m, tzinfo=TZ))
+    at(9)
+    r = Run(pg, shots_dir / "pausa" if shots_dir else None)
+    if r.shots_dir:
+        r.shots_dir.mkdir(exist_ok=True)
+    pg.goto(INDEX)
+    r.signup("Gui", "gui@teste.com")
+    r.create_company("Pausa Ltda")
+    me = pg.evaluate("state.uid")
+
+    def new_task(title, minutes):
+        r.click("#nfab")
+        pg.fill("#f_t", title)
+        pg.fill("#f_d", "Teste")
+        pg.check(f'.f_e[value="{me}"]')
+        r.click("#f_go")
+        tid = pg.evaluate(f"allTasks().find(t => t.title === '{title}').id")
+        r.tab("tarefas")
+        pg.select_option(f'.dsel[data-i="{tid}"]', str(minutes))
+        r.wait(200)
+        r.click(f'[data-a="aceitar"][data-i="{tid}"]')
+        return tid
+
+    a_id, b_id = new_task("Tarefa A", 60), new_task("Tarefa B", 30)
+    task = lambda tid: pg.evaluate(f"state.tasks['{tid}']")
+    assert (task(a_id)["start"], task(b_id)["start"]) == (ms(9), ms(10))
+    r.tab("agenda")
+    r.click(f'[data-a="iniciar"][data-i="{a_id}"]')
+
+    # 09:20 pausa A: 20 min feitos, reserva os 40 que faltam no próximo horário livre (depois de B).
+    at(9, 20)
+    r.click(f'[data-a="pausar"][data-i="{a_id}"]')
+    a = task(a_id)
+    assert a["status"] == "pausada" and a["worked"] == 20 and a["start"] == ms(10, 30), a
+    assert pg.evaluate(f"taskEnd(state.tasks['{a_id}'])") == ms(11, 10)
+    # Puxa B para agora, no lugar de A (antes recusava: "conflita com uma tarefa pausada").
+    r.click(f'[data-a="iniciar"][data-i="{b_id}"]')
+    assert task(b_id)["status"] == "andamento" and task(b_id)["start"] == ms(9, 20)
+    a = task(a_id)
+    assert a["status"] == "pausada" and a["start"] == ms(9, 50), a  # continua pausada; reserva adiantada para o espaço que abriu
+    r.shot("pausada-e-outra")
+    r.click(f'[data-a="retomar"][data-i="{a_id}"]')
+    assert "Já há uma tarefa em andamento" in toast(r)
+    at(9, 50)
+    r.click(f'[data-a="concluir"][data-i="{b_id}"]')
+    r.click("#dn_ok")
+    r.wait(300)
+    # 10:50 e A não foi retomada: a reserva (10:30) passou e é reajustada para o próximo horário livre.
+    at(10, 50)
+    pg.evaluate("reflowPausedTasks()")
+    r.wait(300)
+    a = task(a_id)
+    assert a["status"] == "pausada" and a["start"] == ms(11), a
+    # Retomar continua de onde parou: faltam 40 min.
+    at(11)
+    r.click(f'[data-a="retomar"][data-i="{a_id}"]')
+    a = task(a_id)
+    assert a["status"] == "andamento" and a["start"] == ms(11) and pg.evaluate(f"taskEnd(state.tasks['{a_id}'])") == ms(11, 40), a
+    assert "faltam 40 de 60 min" in pg.inner_text(f'.agenda-side [data-tid="{a_id}"]')
+    r.shot("retomada")
+    # Concluir soma os trechos: 20 + 30 = 50 min.
+    at(11, 30)
+    r.click(f'.agenda-side [data-a="concluir"][data-i="{a_id}"]')
+    r.click("#dn_ok")
+    r.wait(300)
+    a = task(a_id)
+    assert a["status"] == "concluida" and a["dur"] == 50 and a["planDur"] == 60 and a["start"] == ms(10, 40), a
+    assert not r.errors, r.errors
+    ctx.close()
+    return len(r.shots)
+
+
+def device_edit_flow(browser, shots_dir):
+    """Área de Trabalho: editar nome, IP e categoria do aparelho (com log) e excluir com confirmação."""
+    ctx = browser.new_context(viewport={"width": 420, "height": 1400}, timezone_id="America/Sao_Paulo", locale="pt-BR")
+    pg = ctx.new_page()
+    pg.clock.set_fixed_time(NOW)
+    r = Run(pg, shots_dir / "aparelho" if shots_dir else None)
+    if r.shots_dir:
+        r.shots_dir.mkdir(exist_ok=True)
+    pg.goto(INDEX)
+    r.signup("Olga", "olga@teste.com")
+    r.create_company("Editar Ltda", [("Impressora", "Impressora Velha", "10.0.0.7")])
+    dev = pg.evaluate("Object.keys(state.devices)[0]")
+    r.tab("workstation")
+    card = f'.device-card[data-did="{dev}"]'
+    pg.evaluate("saveLayout(myLayoutCopy())")  # organização pessoal salva (grupo da categoria Impressora)
+    r.wait()
+    r.click(f'{card} [data-devedit="{dev}"]')
+    assert pg.input_value("#de_n") == "Impressora Velha" and pg.input_value("#de_i") == "10.0.0.7"
+    assert pg.input_value("#de_a") == "Impressora"
+    r.shot("editar-aparelho", "#mdb")
+    pg.fill("#de_n", "Impressora Nova")
+    pg.fill("#de_i", "999.1.1.1")
+    r.click("#de_ok")
+    assert "IP válido" in toast(r)
+    pg.fill("#de_i", "10.0.0.8")
+    pg.select_option("#de_a", "Computador")
+    r.click("#de_ok")
+    d = pg.evaluate(f"state.devices['{dev}']")
+    assert (d["name"], d["ip"], d["area"]) == ("Impressora Nova", "10.0.0.8", "Computador"), d
+    assert any(l["x"].startswith('Dados alterados: nome "Impressora Velha" → "Impressora Nova"; IP 10.0.0.7 → 10.0.0.8; '
+                                 'categoria Impressora → Computador') for l in d["log"]), d["log"]
+    assert "IMPRESSORA NOVA" in pg.inner_text(card).upper() and "10.0.0.8" in pg.inner_text(card)
+    # Saiu do grupo "Impressora" (some, vazio) e foi para o de "Computador".
+    assert pg.evaluate(f"document.querySelector('{card}').closest('.dev-group')?.querySelector('h3')?.innerText || ''").find("Computador") >= 0
+    # Excluir: pede confirmação; cancelar mantém.
+    r.click(f'{card} [data-devedit="{dev}"]')
+    r.click(f'[data-devdel="{dev}"]')
+    assert "Excluir aparelho?" in pg.inner_text("#mdb")
+    r.click("#dn_no")
+    assert pg.evaluate(f"!!state.devices['{dev}']")
+    r.click(f'{card} [data-devedit="{dev}"]')
+    r.click(f'[data-devdel="{dev}"]')
+    r.click("#dx_ok")
+    assert pg.locator(card).count() == 0 and not pg.evaluate(f"!!state.devices['{dev}']")
     assert not r.errors, r.errors
     ctx.close()
     return len(r.shots)
