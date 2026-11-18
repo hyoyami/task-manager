@@ -6,3 +6,6 @@ __pycache__/
 .venv/
 venv/
 .impeccable/config.local.json
+
+# Relatórios de commits gerados localmente (.md e .pdf) — ficam só no computador
+relatorios/

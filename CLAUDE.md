@@ -39,6 +39,10 @@ js/app/                    render.js (abas e render()), actions.js (o que cada b
 tests/smoke.py             teste rápido (cadastro + login)
 tests/e2e.py               teste ponta a ponta dos fluxos principais (relógio fixo, modo local)
 tests/supabase_e2e.py      integração real com o Supabase (2 navegadores, tempo real, RLS) + limpeza
+scripts/relatorio-commits.sh  relatório dos commits (dia|semana|mes|intervalo) em Markdown
+.claude/agents/relatorio-commits.md, .claude/skills/relatorio-commits/  agente + comando /relatorio-commits
+                           (rodam o script, escrevem o resumo e salvam em relatorios/ o .md e o .pdf)
+scripts/relatorio-pdf.py   .md do relatório → PDF diagramado (Playwright/Chromium; usar .venv/bin/python)
 ```
 
 ## Como rodar
