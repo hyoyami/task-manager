@@ -89,7 +89,8 @@ já confirmadas, sem enviar e-mail, e para limpar tudo no final).
 - `cred/<id>` — só no modo local: `{salt, hash, aid}` credenciais (PBKDF2 no navegador). `id` = hash do e-mail.
 - `profiles/<aid>` — `{name, role:'admin'|'func'|'sol', company, status:'pending'|'active', requestedAt, email, ck,
   theme, seen, start,end,bs,be (jornada),
-  off:[{s,e,note}] (folgas pontuais), wk:[0..6] (folga semanal), ws:{cargo,setup,layout}}`.
+  off:[{s,e,note, brk?, part?}] (folgas pontuais; brk = intervalo, part = ausência parcial), wk:[0..6] (folga semanal),
+  noBreak (sem almoço fixo), extra:[{s,e,note}] (horas extras programadas), ws:{cargo,setup,layout}}`.
   `ws.layout` = organização dos aparelhos: `[{type:'dev',id} | {type:'group',id,name,cat?,items:[devId]}]`
   (sem layout, cada categoria vira um grupo — ver `js/domain/layout.js`).
   Solicitante: `devCatOrder:[categoria]` = ordem das categorias na aba Aparelhos.
@@ -98,6 +99,7 @@ já confirmadas, sem enviar e-mail, e para limpar tudo no final).
   dev,devName,devArea,devIp,devPrev,preset,tipo:'manutencao', pool, cat}`. `devPrev` = status do aparelho antes da tarefa.
   Tarefa aberta para a equipe: `pool:true`, `emp:null`, `cat` = categoria (do aparelho ou escolhida; `null` = geral).
   Status: `aguardando` → `pendente`/`agendada` → `andamento` ⇄ `pausada` → `concluida` | `cancelada`.
+  `worked` (min feitos antes de pausar), `ot` (minutos de hora extra registrados).
   Manutenção periódica: `rec:{n, u:'d'|'m'|'y'}`; a próxima ocorrência nasce `programada` com `want` = data,
   `series` = id da primeira e `dur` herdada.
 - `devices/<id>` — `{company, owner (quem cadastrou), name, ip, area, status:'Operacional|Inoperante|Em manutenção|Fora de uso',
@@ -166,6 +168,11 @@ já confirmadas, sem enviar e-mail, e para limpar tudo no final).
   `reflowPausedTasks()` (ao iniciar/concluir/mudar duração/folgas, ao receber tarefas e a cada 30 s) reajusta a reserva:
   se não vale mais (passou sem retomar, ocupada, fora do expediente) vai para o próximo horário; se abriu espaço antes,
   adianta (sem histórico). Concluir depois de pausa soma os trechos (`dur` = trabalhado, bloco terminando agora).
+- **Pausar depois do expediente** (`shiftEnded()`: passou da saída e não está em hora extra): abre "Seu expediente
+  terminou" (`openEndOfDayPause()`). "Não" fecha (segue pausada, reserva normal); "Sim" (`#nd_ok`,
+  `moveToNextDayFirst()`) reserva o restante no **primeiro horário do próximo dia de trabalho** (`nextDayFirstSlot()`,
+  ignora as agendadas), mantendo pausada com `worked`/`ot`/histórico, e empurra as agendadas desse dia para depois,
+  na mesma ordem (empurra antes de mover a pausada, por causa do `reflowPausedTasks()`).
 - Uma tarefa em andamento por vez (por funcionário). Iniciar antes do horário puxa a tarefa para agora;
   concluir antes do previsto encurta a duração e libera o horário.
 - Tarefa vinculada a aparelho vira "Manutenção"; o relato da conclusão vai para o log do aparelho. Em todo cartão de
@@ -203,6 +210,19 @@ já confirmadas, sem enviar e-mail, e para limpar tudo no final).
   `{s, e, note, brk:1}`, pausa a tarefa em andamento (o que falta vai para logo depois do intervalo) e empurra as
   agendadas que colidirem, na mesma ordem. "Encerrar intervalo" (`endBreak()`) corta o intervalo agora.
   Intervalos não aparecem na lista de folgas; a Equipe mostra "Em intervalo (nome) até hh:mm"
+- **Hora extra programada** (Horário de trabalho e folgas → cartão "Hora extra", ou botão "Hora extra" na Agenda de hoje;
+  `openOvertime()`, ids `he_*`): dia + início/fim + motivo → `addOvertime()` grava em `profiles.extra`. As regras de agenda
+  usam **janelas de trabalho** (`workWindows()` = expediente normal + horas extras do dia, inclusive em folga/feriado):
+  `findSlot`, `fitsAt`, `isOutsideWorkHours` e a linha do tempo (faixa "Hora extra" + horários livres) passam a
+  considerá-las; ao programar, pendentes são encaixadas e a pausada adiantada. Remover (`removeOvertime()`) devolve
+  para pendente o que estava marcado nela. **Hora extra registrada**: ao pausar/concluir (ou pausa automática), os
+  minutos do trecho fora do expediente normal (`overtimeMin()`) somam em `task.ot` + histórico; aparece no cartão,
+  no detalhe e no painel "Em andamento" — vale também para a imprevista (iniciar fora do horário com confirmação).
+- **Ausência parcial** (Horário de trabalho e folgas → "Registrar ausência parcial", `openPartialAbsence()`, ids `pa_*`):
+  dia + saída/volta + motivo (atalhos), com prévia das tarefas afetadas → `blockPeriod(s, e, note, 'part')` grava em
+  `off` `{s, e, note, part:1}`; se já começou, pausa a tarefa em andamento; as agendadas que colidirem vão para depois,
+  na mesma ordem. Aparece na lista de folgas (removível), na agenda ("Ausente: motivo") e na Equipe. `startBreak()`
+  (intervalo) usa o mesmo `blockPeriod(..., 'brk')`.
 - **Ausente hoje** (Horário de trabalho e folgas → "Marcar hoje como ausente", com confirmação): `markAbsentToday()`
   grava uma folga só do dia de hoje (`off` com `note:'Ausente'`) e leva as tarefas **agendadas** de hoje para o dia
   seguinte (`want` = amanhã; `placeByPriority`, pulando folgas/feriados; sem vaga na semana → pendente, e

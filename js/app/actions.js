@@ -460,7 +460,7 @@ function outsideWorkHours(t, p) {
   const day = startOfDay(t.start);
   const lunch = breakOf(p, day);
   const end = taskEnd(t);
-  return t.start < atTime(day, p.start) || end > atTime(day, p.end) || (t.start < lunch.e && end > lunch.s);
+  return !insideWorkWindows(p, t.start, end) || (t.start < lunch.e && end > lunch.s);
 }
 
 async function saveWorkHours() {
@@ -475,6 +475,33 @@ async function saveWorkHours() {
 }
 
 // ---------- Intervalo sob demanda ----------
+async function confirmOvertime(btn) {
+  const r = readOvertime();
+  if (r.error) return say(r.error);
+  btn.disabled = true;
+  closeModal();
+  const before = allTasks().filter((t) => t.emp === state.uid && t.status === 'pendente').length;
+  await addOvertime(r.s, r.e, r.note);
+  const after = allTasks().filter((t) => t.emp === state.uid && t.status === 'pendente').length;
+  say('Hora extra programada: ' + fmtDay(r.s) + ' ' + fmtTime(r.s) + '–' + fmtTime(r.e) + '.'
+    + (before > after ? ' ' + plural(before - after, 'tarefa pendente encaixada', 'tarefas pendentes encaixadas') + ' nela.' : ''));
+  render();
+}
+
+async function confirmPartialAbsence(btn) {
+  const r = readPartialAbsence();
+  if (r.error) return say(r.error);
+  const note = r.note || 'Ausência';
+  btn.disabled = true;
+  closeModal();
+  const { paused, moved, pending } = await blockPeriod(r.s, r.e, note, 'part');
+  say('Ausência registrada: ' + fmtDay(r.s) + ' ' + fmtTime(r.s) + '–' + fmtTime(r.e) + '.'
+    + (paused ? ' A tarefa em andamento foi pausada.' : '')
+    + (moved ? ' ' + plural(moved, 'tarefa reajustada', 'tarefas reajustadas') + '.' : '')
+    + (pending ? ' ' + plural(pending, 'ficou pendente', 'ficaram pendentes') + '.' : ''));
+  render();
+}
+
 async function confirmStartBreak(btn) {
   const note = $('#br_n').value.trim();
   const minutes = +$('#br_m').value;
@@ -597,6 +624,18 @@ const ACTIONS_BY_ID = {
   o_go: addTimeOff,
   ab_open: openAbsentConfirm,
   br_open: () => openBreakDialog(),
+  pa_open: () => openPartialAbsence(),
+  he_open: () => openOvertime(),
+  nd_ok: async (btn) => {
+    btn.disabled = true;
+    const id = ui.modal.nextDayTask;
+    closeModal();
+    const at = await moveToNextDayFirst(id);
+    say(at ? 'Tarefa enviada para ' + fmtDayTime(at) + ' (primeira do dia). Tempo feito salvo.' : 'Não há outro dia de trabalho nesta semana.');
+    render();
+  },
+  he_ok: confirmOvertime,
+  pa_ok: confirmPartialAbsence,
   br_ok: confirmStartBreak,
   br_end: async () => { await endBreak(); say('Intervalo encerrado. Bom trabalho!'); render(); },
   de_ok: saveDeviceEdit,
@@ -618,6 +657,8 @@ const ACTIONS_BY_DATA = {
   ag: (v) => { ui.agendaEmp = v; goTo('agenda'); },
   tf: (v) => { ui.taskFilter = v; render(); },
   tfclear: () => { ui.taskReq = ''; ui.taskEmp = ''; render(); },
+  herm: async (v) => { await removeOvertime(v); say('Hora extra removida.'); render(); },
+  pan: (v) => { const n = $('#pa_n'); if (n) n.value = v; },
   brn: (v) => { const n = $('#br_n'); if (n) n.value = v; const m = $('#br_m'); if (m && BREAK_PRESETS[v]) m.value = BREAK_PRESETS[v]; },
   day: (v) => moveAgendaDay(+v),
   av: (v) => { ui.agendaView = v; render(); },
@@ -637,6 +678,10 @@ const ACTIONS_BY_DATA = {
     // Iniciar fora do expediente só com confirmação (senão a tarefa entraria hoje, depois do horário).
     const t = state.tasks[btn.dataset.i];
     if ((v === 'iniciar' || v === 'retomar') && t && isOutsideWorkHours(profileOf(t.emp), Date.now())) return openStartOutsideHours(t.id, v);
+    // Pausou depois do fim do expediente: pergunta se leva a tarefa para o início do próximo dia.
+    if (v === 'pausar' && t && t.emp === state.uid && shiftEnded()) {
+      return taskAction(t.id, v).then(() => { render(); openEndOfDayPause(t.id); });
+    }
     return taskAction(btn.dataset.i, v);
   },
   d: (v, btn) => changeDuration(btn.dataset.i, +v),

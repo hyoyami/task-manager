@@ -88,6 +88,8 @@ async function onChange(e) {
       $('#f_ebox').innerHTML = employeePicker(x.value);
       $('#f_rbox').innerHTML = recurrencePicker(x.value);
       $('#f_p').disabled = false;
+    } else if (/^pa_[dse]$/.test(x.id)) {
+      partialAbsenceImpact();
     } else if (x.id === 'p_nb') {
       const box = $('.lunch-fields');
       if (box) box.hidden = x.checked;

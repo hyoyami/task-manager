@@ -43,6 +43,44 @@ function busyIntervals(emp, exceptId, statuses = OCCUPYING) {
     .map((t) => ({ s: t.start, e: taskEnd(t) }));
 }
 
+// ---------- Janelas de trabalho: expediente + horas extras ----------
+/** Expediente normal do dia (null em folga semanal ou feriado). */
+const baseWindow = (profile, day) => (isWeeklyOff(profile, day) || isHolidayOff(day) ? null
+  : { s: atTime(day, profile.start), e: atTime(day, profile.end) });
+
+/** Horas extras programadas que caem no dia: profiles.extra = [{ s, e, note }]. */
+const extrasOn = (profile, day) => (profile.extra || []).filter((x) => x.e > day && x.s < addDays(day, 1));
+
+/** Janelas de trabalho do dia (expediente + horas extras), ordenadas e unidas quando se encostam. */
+function workWindows(profile, day) {
+  const list = [baseWindow(profile, day), ...extrasOn(profile, day).map((x) => ({ s: x.s, e: x.e }))]
+    .filter(Boolean).sort((a, b) => a.s - b.s);
+  const out = [];
+  for (const w of list) {
+    const last = out[out.length - 1];
+    if (last && w.s <= last.e) last.e = Math.max(last.e, w.e);
+    else out.push({ ...w });
+  }
+  return out;
+}
+
+/** [s, e) cabe inteiro numa janela de trabalho? */
+const insideWorkWindows = (profile, s, e) => workWindows(profile, startOfDay(s)).some((w) => s >= w.s && e <= w.e);
+
+/** Minutos de [s, e) fora do expediente normal (hora extra) — horas extras programadas também contam. */
+function overtimeMin(profile, s, e) {
+  let total = 0;
+  for (let day = startOfDay(s); day < e; day = addDays(day, 1)) {
+    const a = Math.max(s, day);
+    const b = Math.min(e, addDays(day, 1));
+    if (b <= a) continue;
+    const w = baseWindow(profile, day);
+    const inside = w ? Math.max(0, Math.min(b, w.e) - Math.max(a, w.s)) : 0;
+    total += b - a - inside;
+  }
+  return Math.round(total / MIN);
+}
+
 /**
  * Primeiro horário livre (ms) com `dur` minutos a partir de `from`, dentro da
  * semana corrente, respeitando jornada, intervalo, folgas e `busy`. null se não houver.
@@ -52,18 +90,17 @@ function findSlot(profile, busy, dur, from) {
   from = Math.ceil(from / step) * step;
   const need = dur * MIN;
   for (let day = startOfDay(from); day < currentWeek().e; day = addDays(day, 1)) {
-    if (isWeeklyOff(profile, day) || isHolidayOff(day)) continue;
-    const ws = atTime(day, profile.start);
-    const we = atTime(day, profile.end);
-    const blocks = [...busy, ...(profile.off || []), breakOf(profile, day)]
-      .filter((b) => b.e > ws && b.s < we)
-      .sort((a, b) => a.s - b.s);
-    let cursor = Math.max(ws, from);
-    for (const b of blocks) {
-      if (b.s - cursor >= need) return cursor;
-      cursor = Math.max(cursor, b.e);
+    for (const w of workWindows(profile, day)) {
+      const blocks = [...busy, ...(profile.off || []), breakOf(profile, day)]
+        .filter((b) => b.e > w.s && b.s < w.e)
+        .sort((a, b) => a.s - b.s);
+      let cursor = Math.max(w.s, from);
+      for (const b of blocks) {
+        if (b.s - cursor >= need) return cursor;
+        cursor = Math.max(cursor, b.e);
+      }
+      if (w.e - cursor >= need) return cursor;
     }
-    if (we - cursor >= need) return cursor;
   }
   return null;
 }
@@ -73,9 +110,8 @@ function findSlot(profile, busy, dur, from) {
  * folga/ausência ou feriado oficial). O intervalo de almoço não conta como fora do expediente.
  */
 function isOutsideWorkHours(profile, ms) {
-  const day = startOfDay(ms);
-  return ms < atTime(day, profile.start) || ms >= atTime(day, profile.end) || isWeeklyOff(profile, ms)
-    || isHolidayOff(ms) || (profile.off || []).some((o) => ms >= o.s && ms < o.e);
+  return !workWindows(profile, startOfDay(ms)).some((w) => ms >= w.s && ms < w.e)
+    || (profile.off || []).some((o) => ms >= o.s && ms < o.e);
 }
 
 /** A tarefa cabe começando em `start` (arrastar/tocar num horário)? */
@@ -83,8 +119,8 @@ function fitsAt(task, start) {
   const p = profileOf(task.emp);
   const day = startOfDay(start);
   const end = start + remainingMin(task) * MIN;
-  if (start < atTime(day, p.start) || end > atTime(day, p.end)) return false;
-  if (start < Date.now() - SLOT_ROUND * MIN || isWeeklyOff(p, start) || isHolidayOff(start)) return false;
+  if (!insideWorkWindows(p, start, end)) return false;
+  if (start < Date.now() - SLOT_ROUND * MIN) return false;
   const blocks = [...busyIntervals(task.emp, task.id), ...(p.off || []), breakOf(p, day)];
   return !blocks.some((b) => start < b.e && end > b.s);
 }
@@ -121,7 +157,10 @@ function employeeStatus(id) {
   if (running) return { k: 'busy', x: 'Executando: ' + running.title };
   const off = (p.off || []).find((o) => now >= o.s && now < o.e);
   if (off?.brk) return { k: 'off', x: 'Em intervalo' + (off.note ? ' (' + off.note + ')' : '') + ' até ' + fmtTime(off.e) };
+  if (off?.part) return { k: 'off', x: 'Ausente' + (off.note ? ' (' + off.note + ')' : '') + ' até ' + fmtTime(off.e) };
   if (off) return { k: 'off', x: 'De folga' + (off.note ? ' (' + off.note + ')' : '') + ' até ' + fmtDay(off.e - 1) };
+  const extra = extrasOn(p, today).find((x) => now >= x.s && now < x.e);
+  if (extra) return { k: 'free', x: 'Em hora extra até ' + fmtTime(extra.e) + (extra.note ? ' (' + extra.note + ')' : '') };
   if (isWeeklyOff(p, now)) return { k: 'off', x: 'Folga semanal' };
   if (isHolidayOff(now)) return { k: 'off', x: holidayText(holidayOn(now)) };
   if (now < atTime(today, p.start) || now >= atTime(today, p.end)) {

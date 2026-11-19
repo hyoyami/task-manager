@@ -285,12 +285,25 @@ const runningSegmentMin = (t, now = Date.now()) =>
 /** Minutos já trabalhados na tarefa (trechos anteriores + o atual). */
 const workedMin = (t, now = Date.now()) => (t.worked || 0) + runningSegmentMin(t, now);
 
+// ---------- Hora extra registrada ----------
+/**
+ * Hora extra do trecho em andamento (desde que iniciou/retomou até `now`): os minutos fora do expediente
+ * normal (inclui horas extras programadas). Soma em `task.ot` e devolve o texto para o histórico.
+ */
+function overtimePatch(t, now = Date.now()) {
+  if (t.status !== 'andamento') return { patch: {}, note: '' };
+  const from = t.resumedAt || t.startedAt || t.start;
+  const m = from ? overtimeMin(profileOf(t.emp), from, now) : 0;
+  return m > 0 ? { patch: { ot: (t.ot || 0) + m }, note: ' · hora extra: ' + m + ' min' } : { patch: {}, note: '' };
+}
+
 async function pauseTask(t) {
   const now = Date.now();
   const worked = Math.min(t.dur, workedMin(t, now));
   const left = Math.max(SLOT_ROUND, t.dur - worked);
-  await commitTask(t.id, { status: 'pausada', worked, pausedAt: now, start: now },
-    'Pausada (' + worked + ' de ' + t.dur + ' min feitos; faltam ' + left + ' min)');
+  const ot = overtimePatch(t, now);
+  await commitTask(t.id, { status: 'pausada', worked, pausedAt: now, start: now, ...ot.patch },
+    'Pausada (' + worked + ' de ' + t.dur + ' min feitos; faltam ' + left + ' min)' + ot.note);
   notify(t.req, 'Tarefa ' + quote(t) + ' pausada');
   await placePaused(state.tasks[t.id], true);
 }
@@ -391,6 +404,9 @@ async function taskAction(id, action, summary) {
         note = ' antes do previsto (' + elapsed + ' de ' + t.dur + ' min)';
       }
     }
+    const ot = overtimePatch(t);
+    Object.assign(patch, ot.patch);
+    note += ot.note;
     if (summary) {
       patch.summary = summary;
       note += ' — resumo: ' + summary;
@@ -482,7 +498,7 @@ const currentBreak = (profile = profileOf(state.uid), now = Date.now()) =>
 function slotFree(profile, s, min, busy) {
   const day = startOfDay(s);
   const e = s + min * MIN;
-  if (s < atTime(day, profile.start) || e > atTime(day, profile.end) || isWeeklyOff(profile, s) || isHolidayOff(s)) return false;
+  if (!insideWorkWindows(profile, s, e)) return false;
   return ![...busy, ...(profile.off || []), breakOf(profile, day)].some((b) => s < b.e && e > b.s);
 }
 
@@ -493,25 +509,41 @@ function slotFree(profile, s, min, busy) {
  */
 async function startBreak(note, minutes) {
   const now = Date.now();
-  const end = now + minutes * MIN;
-  const p = profileOf(state.uid);
-  const today = startOfDay(now);
-  // Guarda só os intervalos de hoje em diante (os antigos não servem mais para nada).
-  const off = (p.off || []).filter((o) => !o.brk || o.e > today);
-  await patchMyProfile({ off: [...off, { s: now, e: end, note, brk: 1 }] });
-  const label = '"' + note + '" (' + fmtTime(now) + '–' + fmtTime(end) + ')';
+  return blockPeriod(now, now + minutes * MIN, note, 'brk');
+}
 
-  const running = allTasks().find((t) => t.emp === state.uid && t.status === 'andamento');
+/** Rótulos por tipo de bloqueio: intervalo (brk) ou ausência parcial (part). */
+const BLOCK_KIND = {
+  brk: { what: 'intervalo', status: 'em intervalo', after: 'depois do intervalo' },
+  part: { what: 'ausência', status: 'ausente', after: 'depois da ausência' },
+};
+
+/**
+ * Bloqueia [s, e) na agenda do usuário logado (grava em `off` com `brk:1` ou `part:1`). Se o período já começou,
+ * a tarefa em andamento é pausada e o que falta vai para logo depois; as agendadas que colidirem são empurradas
+ * para depois, na mesma ordem (sem vaga na semana → pendentes). Devolve { paused, moved, pending }.
+ */
+async function blockPeriod(s, e, note, kind) {
+  const now = Date.now();
+  const k = BLOCK_KIND[kind];
+  const p = profileOf(state.uid);
+  // Guarda só os intervalos de hoje em diante (os antigos não servem mais para nada).
+  const off = (p.off || []).filter((o) => !o.brk || o.e > startOfDay(now));
+  await patchMyProfile({ off: [...off, { s, e, note, [kind]: 1 }] });
+  const label = '"' + note + '" (' + (startOfDay(s) === startOfDay(now) ? '' : fmtDay(s) + ' ') + fmtTime(s) + '–' + fmtTime(e) + ')';
+
+  const running = s <= now && now < e && allTasks().find((t) => t.emp === state.uid && t.status === 'andamento');
   let paused = null;
   if (running) {
     const worked = Math.min(running.dur, workedMin(running, now));
-    await commitTask(running.id, { status: 'pausada', worked, pausedAt: now, start: null },
-      'Pausada automaticamente: intervalo ' + label + ' (' + worked + ' de ' + running.dur + ' min feitos)');
-    notify(running.req, 'Tarefa ' + quote(running) + ' pausada: ' + nameOf(state.uid) + ' entrou em intervalo');
+    const ot = overtimePatch(running, now);
+    await commitTask(running.id, { status: 'pausada', worked, pausedAt: now, start: null, ...ot.patch },
+      'Pausada automaticamente: ' + k.what + ' ' + label + ' (' + worked + ' de ' + running.dur + ' min feitos)' + ot.note);
+    notify(running.req, 'Tarefa ' + quote(running) + ' pausada: ' + nameOf(state.uid) + ' está ' + k.status);
     paused = state.tasks[running.id];
   }
 
-  // Ordem: a que estava em andamento (continua logo depois do intervalo) e as agendadas, na ordem em que estavam.
+  // Ordem: a que estava em andamento (continua logo depois) e as agendadas, na ordem em que estavam.
   const queue = allTasks().filter((t) => t.emp === state.uid && t.status === 'agendada' && taskEnd(t) > now)
     .sort((a, b) => a.start - b.start);
   const movingIds = new Set([paused?.id, ...queue.map((t) => t.id)]);
@@ -521,27 +553,31 @@ async function startBreak(note, minutes) {
   let moved = 0;
   let pending = 0;
   if (paused) {
-    const s = findSlot(prof, busy, remainingMin(paused), now); // o intervalo (em `off`) já bloqueia até o fim
-    if (s) {
-      busy.push({ s, e: s + remainingMin(paused) * MIN });
-      await commitTask(paused.id, { start: s }, 'Restante reservado para ' + fmtDayTime(s) + ' (depois do intervalo)');
+    const at = findSlot(prof, busy, remainingMin(paused), now); // o período (em `off`) já bloqueia até o fim
+    if (at) {
+      busy.push({ s: at, e: at + remainingMin(paused) * MIN });
+      await commitTask(paused.id, { start: at }, 'Restante reservado para ' + fmtDayTime(at) + ' (' + k.after + ')');
     }
   }
   for (const t of queue) {
     if (slotFree(prof, t.start, remainingMin(t), busy)) { busy.push({ s: t.start, e: taskEnd(t) }); continue; }
-    const s = findSlot(prof, busy, remainingMin(t), Math.max(now, t.start));
-    if (s) {
-      busy.push({ s, e: s + remainingMin(t) * MIN });
-      await commitTask(t.id, { start: s, initial: t.initial || t.start }, 'Reajustada pelo intervalo ' + label + ': ' + fmtDayTime(s));
-      notify(t.req, 'Tarefa ' + quote(t) + ' reagendada para ' + fmtDayTime(s) + ' (' + nameOf(state.uid) + ' em intervalo)');
+    const at = findSlot(prof, busy, remainingMin(t), Math.max(now, t.start));
+    if (at) {
+      busy.push({ s: at, e: at + remainingMin(t) * MIN });
+      await commitTask(t.id, { start: at, initial: t.initial || t.start }, (kind === 'brk' ? 'Reajustada pelo intervalo ' : 'Reajustada pela ausência ') + label + ': ' + fmtDayTime(at));
+      notify(t.req, 'Tarefa ' + quote(t) + ' reagendada para ' + fmtDayTime(at) + ' (' + nameOf(state.uid) + ' ' + k.status + ')');
       moved++;
     } else {
-      await requeue(t, 'intervalo ' + label);
+      await requeue(t, k.what + ' ' + label);
       pending++;
     }
   }
   return { paused: !!paused, moved, pending };
 }
+
+/** Agendadas do usuário logado que caem em [s, e) (para avisar antes de registrar a ausência). */
+const scheduledInPeriod = (s, e) => allTasks().filter((t) => t.emp === state.uid && t.status === 'agendada' && t.start < e && taskEnd(t) > s)
+  .sort((a, b) => a.start - b.start);
 
 /** Encerra agora o intervalo em curso (a reserva da pausada pode ser adiantada). */
 async function endBreak() {
@@ -549,6 +585,76 @@ async function endBreak() {
   const off = (profileOf(state.uid).off || []).map((o) => (o.brk && now >= o.s && now < o.e ? { ...o, e: now } : o));
   await patchMyProfile({ off });
   await reflowPausedTasks();
+}
+
+// ---------- Pausar depois do expediente: levar para o próximo dia ----------
+/** Já passou do fim do expediente de hoje (e não está numa hora extra)? */
+function shiftEnded(profile = profileOf(state.uid), now = Date.now()) {
+  return now >= atTime(startOfDay(now), profile.end) && isOutsideWorkHours(profile, now);
+}
+
+/**
+ * Primeiro horário do próximo dia de trabalho para o restante da pausada `t`, ignorando as agendadas
+ * (elas vão para depois dela). null se não houver dia de trabalho até o fim da semana da agenda.
+ */
+function nextDayFirstSlot(t) {
+  const p = profileOf(t.emp);
+  const tomorrow = addDays(startOfDay(Date.now()), 1);
+  const fixed = allTasks().filter((o) => o.emp === t.emp && o.id !== t.id && o.start && STARTED.includes(o.status))
+    .map((o) => ({ s: o.start, e: taskEnd(o) }));
+  return findSlot(p, fixed, remainingMin(t), tomorrow);
+}
+
+/**
+ * Leva a pausada para ser a primeira do próximo dia de trabalho (continua pausada: tempo feito, hora extra e
+ * histórico ficam). As agendadas que colidirem vão para depois dela, na mesma ordem.
+ */
+async function moveToNextDayFirst(id) {
+  const t = state.tasks[id];
+  if (!t || t.status !== 'pausada') return null;
+  const at = nextDayFirstSlot(t);
+  if (!at) return null;
+  // Primeiro abre espaço: as agendadas que colidirem vão para depois, na mesma ordem (antes de mover a pausada,
+  // para o reajuste automático das pausadas não ver o horário ainda ocupado).
+  const prof = profileOf(state.uid);
+  const busy = [{ s: at, e: at + remainingMin(t) * MIN },
+    ...allTasks().filter((o) => o.emp === state.uid && o.id !== t.id && o.start && STARTED.includes(o.status)).map((o) => ({ s: o.start, e: taskEnd(o) }))];
+  const queue = allTasks().filter((o) => o.emp === state.uid && o.status === 'agendada' && taskEnd(o) > at).sort((a, b) => a.start - b.start);
+  for (const o of queue) {
+    if (slotFree(prof, o.start, remainingMin(o), busy)) { busy.push({ s: o.start, e: taskEnd(o) }); continue; }
+    const s = findSlot(prof, busy, remainingMin(o), Math.max(at, o.start));
+    if (s) {
+      busy.push({ s, e: s + remainingMin(o) * MIN });
+      await commitTask(o.id, { start: s, initial: o.initial || o.start }, 'Reajustada: ' + quote(t) + ' foi para o início do dia (' + fmtDayTime(s) + ')');
+      notify(o.req, 'Tarefa ' + quote(o) + ' reagendada para ' + fmtDayTime(s));
+    } else {
+      await requeue(o, quote(t) + ' foi para o início do dia');
+    }
+  }
+  await commitTask(t.id, { start: at },
+    'Fim do expediente: enviada para ser a primeira do próximo dia (' + fmtDayTime(at) + '), com ' + (t.worked || 0) + ' de ' + t.dur + ' min feitos');
+  notify(t.req, 'Tarefa ' + quote(t) + ' continua ' + fmtDayTime(at) + ' (fim do expediente de ' + nameOf(state.uid) + ')');
+  return at;
+}
+
+// ---------- Hora extra programada ----------
+/** Programa hora extra [s, e) (profiles.extra) e já encaixa ali as pendentes / adianta a pausada. */
+async function addOvertime(s, e, note) {
+  const p = profileOf(state.uid);
+  const today = startOfDay(Date.now());
+  const extra = [...(p.extra || []).filter((x) => x.e > today), { s, e, note }].sort((a, b) => a.s - b.s);
+  await patchMyProfile({ extra });
+  await reflowPausedTasks();
+  await scheduleWaiting(state.uid);
+}
+
+/** Remove a hora extra; o que estava marcado nela volta a pendente e é reencaixado. */
+async function removeOvertime(index) {
+  const extra = [...(profileOf(state.uid).extra || [])];
+  extra.splice(+index, 1);
+  await patchMyProfile({ extra });
+  const p = profileOf(state.uid);
+  await requeueForTimeOff((t) => !insideWorkWindows(p, t.start, taskEnd(t)), 'hora extra removida');
 }
 
 // ---------- Ausência no dia ----------

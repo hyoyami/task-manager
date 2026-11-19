@@ -497,6 +497,9 @@ def main():
         n += device_edit_flow(b, shots_dir)
         n += agenda_visibility_flow(b, shots_dir)
         n += break_flow(b, shots_dir)
+        n += partial_absence_flow(b, shots_dir)
+        n += overtime_flow(b, shots_dir)
+        n += end_of_day_pause_flow(b, shots_dir)
         print(f"OK: {len(r.shots) + n} telas verificadas, sem erros de JavaScript.")
         b.close()
 
@@ -1655,6 +1658,223 @@ def break_flow(browser, shots_dir):
     r.tab("agenda")
     r.click("#br_end")
     assert pg.evaluate("currentBreak()") is None and pg.locator("#br_open").count() == 1
+    assert not r.errors, r.errors
+    ctx.close()
+    return len(r.shots)
+
+
+def partial_absence_flow(browser, shots_dir):
+    """Ausência parcial (Horário de trabalho e folgas): bloqueia o período, pausa a tarefa em andamento e empurra a agenda."""
+    ctx = browser.new_context(viewport={"width": 420, "height": 1400}, timezone_id="America/Sao_Paulo", locale="pt-BR")
+    pg = ctx.new_page()
+    at = lambda h, m=0: pg.clock.set_fixed_time(datetime(2026, 11, 11, h, m, tzinfo=TZ))
+    at(9)
+    r = Run(pg, shots_dir / "ausencia-parcial" if shots_dir else None)
+    if r.shots_dir:
+        r.shots_dir.mkdir(exist_ok=True)
+    pg.goto(INDEX)
+    r.signup("Caio", "caio@teste.com")
+    r.create_company("Parcial Ltda")
+    me = pg.evaluate("state.uid")
+    ids = []
+    for title, minutes in [("Tarefa A", 60), ("Tarefa B", 30), ("Tarefa C", 30)]:
+        r.click("#nfab")
+        pg.fill("#f_t", title)
+        pg.fill("#f_d", "Teste")
+        pg.check(f'.f_e[value="{me}"]')
+        r.click("#f_go")
+        tid = pg.evaluate(f"allTasks().find(t => t.title === '{title}').id")
+        r.tab("tarefas")
+        pg.select_option(f'.dsel[data-i="{tid}"]', str(minutes))
+        r.wait(200)
+        r.click(f'[data-a="aceitar"][data-i="{tid}"]')
+        ids.append(tid)
+    a, b, c = ids
+    task = lambda tid: pg.evaluate(f"state.tasks['{tid}']")
+    r.tab("agenda")
+    r.click(f'[data-a="iniciar"][data-i="{a}"]')
+
+    # 09:30: sai para o médico até 10:30.
+    at(9, 30)
+    r.menu("folgas")
+    r.click("#pa_open")
+    assert pg.input_value("#pa_s") == "09:30" and pg.input_value("#pa_e") == "10:30"
+    preview = pg.inner_text("#pa_aff")
+    assert "Tarefa B" in preview and "Tarefa A" in preview and "será pausada" in preview, preview
+    pg.fill("#pa_e", "09:00")
+    pg.dispatch_event("#pa_e", "change")
+    assert "depois da saída" in pg.inner_text("#pa_aff")
+    pg.fill("#pa_e", "10:30")
+    pg.dispatch_event("#pa_e", "change")
+    r.click('[data-pan="Médico"]')
+    r.shot("ausencia-parcial", "#mdb")
+    r.click("#pa_ok")
+    r.wait(400)
+    ta, tb, tc = task(a), task(b), task(c)
+    assert ta["status"] == "pausada" and ta["worked"] == 30 and ta["start"] == ms(10, 30), ta
+    assert (tb["start"], tc["start"]) == (ms(11), ms(11, 30)), (tb["start"], tc["start"])  # mesma ordem, depois
+    assert any("Pausada automaticamente: ausência" in h["x"] for h in ta["hist"]), ta["hist"]
+    off = pg.evaluate("state.me.off")
+    assert off == [{"s": ms(9, 30), "e": ms(10, 30), "note": "Médico", "part": 1}], off
+    txt = pg.inner_text("#app")
+    assert "Ausência parcial · qua., 11/11 09:30–10:30 Médico" in txt, txt
+    r.tab("agenda")
+    assert "Ausente: Médico" in pg.inner_text(".agenda-main")
+    r.tab("equipe")
+    assert "Ausente (Médico) até 10:30" in pg.inner_text("#app")
+
+    # Ausência futura (14:00–15:00): nada é pausado; a tarefa das 14:00 vai para depois.
+    r.menu("folgas")
+    r.click("#pa_open")
+    pg.fill("#pa_s", "14:00")
+    pg.fill("#pa_e", "15:00")
+    pg.fill("#pa_n", "Banco")
+    r.click("#pa_ok")
+    assert len(pg.evaluate("state.me.off")) == 2 and task(b)["start"] == ms(11)
+    assert not r.errors, r.errors
+    ctx.close()
+    return len(r.shots)
+
+
+def overtime_flow(browser, shots_dir):
+    """Hora extra: programada (a agenda usa o horário, sem confirmação) e registrada por tarefa (inclusive a imprevista)."""
+    ctx = browser.new_context(viewport={"width": 420, "height": 1400}, timezone_id="America/Sao_Paulo", locale="pt-BR")
+    pg = ctx.new_page()
+    at = lambda h, m=0: pg.clock.set_fixed_time(datetime(2026, 11, 11, h, m, tzinfo=TZ))
+    at(16, 30)
+    r = Run(pg, shots_dir / "hora-extra" if shots_dir else None)
+    if r.shots_dir:
+        r.shots_dir.mkdir(exist_ok=True)
+    pg.goto(INDEX)
+    r.signup("Hugo", "hugo@teste.com")
+    r.create_company("Extra Ltda")
+    me = pg.evaluate("state.uid")
+    task = lambda tid: pg.evaluate(f"state.tasks['{tid}']")
+
+    def new_task(title, minutes):
+        r.click("#nfab")
+        pg.fill("#f_t", title)
+        pg.fill("#f_d", "Teste")
+        pg.check(f'.f_e[value="{me}"]')
+        r.click("#f_go")
+        tid = pg.evaluate(f"allTasks().find(t => t.title === '{title}').id")
+        r.tab("tarefas")
+        pg.select_option(f'.dsel[data-i="{tid}"]', str(minutes))
+        r.wait(200)
+        return tid
+
+    # Programa hora extra hoje, 17:00–19:00 (pela Agenda).
+    r.tab("agenda")
+    r.click("#he_open")
+    assert pg.input_value("#he_s") == "17:00" and pg.input_value("#he_e") == "18:00"
+    pg.fill("#he_e", "19:00")
+    pg.fill("#he_n", "Fechamento")
+    r.click("#he_ok")
+    assert pg.evaluate("state.me.extra") == [{"s": ms(17), "e": ms(19), "note": "Fechamento"}]
+    main = pg.inner_text(".agenda-main")
+    assert "Hora extra · 17:00–19:00 · Fechamento" in main and "18:30 · livre" in main, main
+    r.shot("agenda-hora-extra")
+    # Aceitar às 16:30 uma tarefa de 1 h: cabe hoje (16:30–17:30) graças à hora extra.
+    a_id = new_task("Relatório mensal", 60)
+    r.click(f'[data-a="aceitar"][data-i="{a_id}"]')
+    assert task(a_id)["start"] == ms(16, 30), task(a_id)
+    r.tab("agenda")
+    r.click(f'[data-a="iniciar"][data-i="{a_id}"]')
+    assert pg.locator("#md.open").count() == 0 and task(a_id)["status"] == "andamento"  # sem confirmação
+    at(17, 30)
+    r.tab("agenda")
+    r.click(f'[data-a="concluir"][data-i="{a_id}"]')
+    r.click("#dn_ok")
+    r.wait(300)
+    t = task(a_id)
+    assert t["status"] == "concluida" and t["ot"] == 30, t  # 17:00–17:30 fora do expediente
+    assert any("hora extra: 30 min" in h["x"] for h in t["hist"]), t["hist"]
+    r.tab("equipe")
+    assert "Em hora extra até 19:00 (Fechamento)" in pg.inner_text("#app")
+
+    # Imprevista: às 19:30 (depois da hora extra) aceita outra — vai para amanhã — e inicia agora, com confirmação.
+    at(19, 30)
+    b_id = new_task("Backup urgente", 30)
+    r.click(f'[data-a="aceitar"][data-i="{b_id}"]')
+    assert task(b_id)["start"] == ms(8, 0, 12), task(b_id)
+    r.click(f'[data-a="iniciar"][data-i="{b_id}"]')
+    assert "fora do expediente" in pg.inner_text("#mdb")
+    r.click("#so_ok")
+    at(20)
+    r.tab("agenda")
+    r.click(f'.agenda-side [data-a="concluir"][data-i="{b_id}"]')
+    r.click("#dn_ok")
+    r.wait(300)
+    assert task(b_id)["ot"] == 30, task(b_id)
+    r.tab("tarefas")
+    r.click('[data-tf="hist"]')
+    r.click(f'[data-open="{b_id}"]')
+    info = pg.inner_text("#mdb")
+    assert "30 min fora do expediente" in info, info
+    r.click("#dn_no")
+
+    # Remover a hora extra (folgas): some da lista.
+    r.menu("folgas")
+    assert pg.locator('[data-herm="0"]').count() == 0  # já passou: não aparece mais
+    assert not r.errors, r.errors
+    ctx.close()
+    return len(r.shots)
+
+
+def end_of_day_pause_flow(browser, shots_dir):
+    """Pausou depois do expediente: pergunta se leva a tarefa para ser a primeira do próximo dia (com o tempo salvo)."""
+    ctx = browser.new_context(viewport={"width": 420, "height": 1400}, timezone_id="America/Sao_Paulo", locale="pt-BR")
+    pg = ctx.new_page()
+    at = lambda h, m=0: pg.clock.set_fixed_time(datetime(2026, 11, 11, h, m, tzinfo=TZ))
+    at(16)
+    r = Run(pg, shots_dir / "fim-expediente" if shots_dir else None)
+    if r.shots_dir:
+        r.shots_dir.mkdir(exist_ok=True)
+    pg.goto(INDEX)
+    r.signup("Lu", "lu@teste.com")
+    r.create_company("Turno Ltda")
+    me = pg.evaluate("state.uid")
+    task = lambda tid: pg.evaluate(f"state.tasks['{tid}']")
+
+    def new_task(title, minutes):
+        r.click("#nfab")
+        pg.fill("#f_t", title)
+        pg.fill("#f_d", "Teste")
+        pg.check(f'.f_e[value="{me}"]')
+        r.click("#f_go")
+        tid = pg.evaluate(f"allTasks().find(t => t.title === '{title}').id")
+        r.tab("tarefas")
+        pg.select_option(f'.dsel[data-i="{tid}"]', str(minutes))
+        r.wait(200)
+        r.click(f'[data-a="aceitar"][data-i="{tid}"]')
+        return tid
+
+    a_id = new_task("Inventário", 120)      # não cabe hoje → amanhã 08:00; inicia agora (puxa para 16:00)
+    r.tab("agenda")
+    r.tab("tarefas")
+    r.click(f'[data-a="iniciar"][data-i="{a_id}"]')
+    b_id = new_task("Conferir e-mails", 30)  # amanhã 08:00
+    assert task(a_id)["status"] == "andamento" and task(b_id)["start"] == ms(8, 0, 12)
+
+    # 17:30: pausa depois do expediente → janela.
+    at(17, 30)
+    r.tab("agenda")
+    r.click(f'.agenda-side [data-a="pausar"][data-i="{a_id}"]')
+    txt = r.shot("fim-expediente", "#mdb")
+    assert "Seu expediente terminou" in txt and "90 de 120 min feitos" in txt and "qui., 12/11 08:00" in txt, txt
+    # "Não": fecha e a tarefa continua pausada (reserva normal, depois da de mesma urgência já marcada).
+    r.click("#dn_no")
+    a = task(a_id)
+    assert a["status"] == "pausada" and a["worked"] == 90 and a["ot"] == 30 and a["start"] == ms(8, 30, 12), a
+    # "Sim": vira a primeira do dia seguinte; a outra vai para depois.
+    pg.evaluate(f"openEndOfDayPause('{a_id}')")
+    r.click("#nd_ok")
+    r.wait(400)
+    a, b = task(a_id), task(b_id)
+    assert a["status"] == "pausada" and a["start"] == ms(8, 0, 12) and a["worked"] == 90 and a["ot"] == 30, a
+    assert b["start"] == ms(8, 30, 12), b
+    assert any("primeira do próximo dia" in h["x"] for h in a["hist"]), a["hist"]
+    # Pausar dentro do expediente não mostra a janela.
     assert not r.errors, r.errors
     ctx.close()
     return len(r.shots)

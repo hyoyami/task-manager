@@ -98,6 +98,7 @@ const ui = {
     startTaskId: null,
     startAction: null, // 'iniciar' | 'retomar'
     deviceEdit: null, // aparelho em edição
+    nextDayTask: null, // pausada depois do expediente (enviar para o próximo dia?)
     deviceDelete: null, // aparelho aguardando confirmação de exclusão
     category: null,
     /** Problema em edição (índice na lista da categoria). */

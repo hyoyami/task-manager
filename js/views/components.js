@@ -143,6 +143,7 @@ function taskCard(t, { canControl = false, draggable = false } = {}) {
     + '<div class="muted">' + (t.start ? fmtDay(t.start) : 'Sem horário') + ' · ' + (t.dur ? t.dur + ' min' : 'duração a definir') + ' · ' + esc(who) + '</div>'
     + when(moved, '<div class="muted">Horário inicial: ' + fmtDayTime(t.initial) + '</div>')
     + when(t.summary, '<div class="muted"><b>Resumo:</b> ' + esc(t.summary) + '</div>')
+    + when(t.ot, '<div class="muted ot-line"><b>Hora extra:</b> ' + fmtDuration((t.ot || 0) * MIN) + '</div>')
     + '<div class="row actions">' + taskButtons(t, canControl) + '</div>'
     + when(ui.openHistory[t.id], '<div class="history">' + historyLines(t.hist || []) + '</div>')
     + '</div>';

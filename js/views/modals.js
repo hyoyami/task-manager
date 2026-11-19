@@ -33,6 +33,7 @@ function openTaskInfo(id) {
     + '<label>Horário agendado</label><div>' + timeRange(t, 'Não chegou a ser agendada') + when(t.dur, ' · ' + t.dur + ' min') + '</div>'
     + '<label>' + label + ' em</label><div>' + fmtDateTime(finishedAt(t)) + '</div>'
     + when(t.summary, '<label>Resumo da execução</label><div>' + esc(t.summary) + '</div>')
+    + when(t.ot, '<label>Hora extra</label><div>' + fmtDuration((t.ot || 0) * MIN) + ' fora do expediente</div>')
     + '<label>Histórico</label><div class="history flat">' + historyLines(t.hist || []) + '</div>'
     + closeButton('Fechar', 'primary'));
 }
@@ -297,6 +298,105 @@ function openBreakDialog() {
     + '<p class="muted">As tarefas agendadas nesse tempo vão para depois, na mesma ordem.</p>'
     + '<div class="row between mt-12"><button id="dn_no">Cancelar</button><button class="primary" id="br_ok">Iniciar intervalo</button></div>');
   setTimeout(() => $('#br_n')?.focus(), 50);
+}
+
+// ---------- Pausou depois do expediente ----------
+function openEndOfDayPause(id) {
+  const t = state.tasks[id];
+  if (!t || t.status !== 'pausada') return;
+  const p = profileOf(t.emp);
+  const at = nextDayFirstSlot(t);
+  ui.modal.nextDayTask = id;
+  openModal('<h2>Seu expediente terminou</h2>'
+    + '<p>Seu horário de trabalho acabou às <b>' + esc(p.end) + '</b>.</p>'
+    + '<div class="card prio-' + t.prio + '"><b>' + esc(t.title) + '</b>' + deviceChip(t)
+    + '<div class="muted">Pausada · ' + (t.worked || 0) + ' de ' + t.dur + ' min feitos · faltam ' + remainingMin(t) + ' min'
+    + when(t.ot, ' · hora extra ' + fmtDuration(t.ot * MIN)) + '</div></div>'
+    + (at ? '<p>Se não for concluir hoje, quer enviá-la para ser a <b>primeira tarefa do próximo dia de trabalho</b> — <b>'
+        + esc(fmtDayTime(at)) + '</b>? O tempo já feito e o histórico ficam salvos; é só tocar em <b>Retomar</b>.</p>'
+        + '<p class="muted">As tarefas desse dia vão para depois dela, na mesma ordem.</p>'
+      : '<p class="muted">Não há outro dia de trabalho nesta semana da agenda; ela fica pausada e é reagendada na semana que vem.</p>')
+    + '<div class="row between mt-12"><button id="dn_no">Não, deixar como está</button>'
+    + when(at, '<button class="primary" id="nd_ok">Sim, enviar para o próximo dia</button>') + '</div>');
+}
+
+// ---------- Hora extra ----------
+/** Lê a janela de hora extra: { s, e, note } ou { error }. */
+function readOvertime() {
+  const day = $('#he_d')?.value;
+  const from = $('#he_s')?.value;
+  const to = $('#he_e')?.value;
+  if (!day || !from || !to) return { error: 'Informe o dia e o horário de início e de fim.' };
+  const base = parseDateInput(day);
+  const s = atTime(base, from);
+  const e = atTime(base, to);
+  if (e <= s) return { error: 'O fim precisa ser depois do início.' };
+  if (e <= Date.now()) return { error: 'Esse horário já passou.' };
+  return { s, e, note: ($('#he_n')?.value || '').trim() };
+}
+
+function openOvertime() {
+  const now = Date.now();
+  const p = profileOf(state.uid);
+  // Padrão: a partir do fim do expediente de hoje (ou de agora, se já passou), por 1 hora.
+  const endToday = atTime(startOfDay(now), p.end);
+  const start = Math.max(endToday, Math.ceil(now / (5 * MIN)) * 5 * MIN);
+  const hhmm = (ms) => new Date(ms).toTimeString().slice(0, 5);
+  openModal('<h2>Programar hora extra</h2>'
+    + '<p class="muted">Seu expediente: ' + esc(p.start) + '–' + esc(p.end) + '.</p>'
+    + '<label for="he_d">Dia</label><input type="date" id="he_d" value="' + dateKey(start) + '" min="' + dateKey(now) + '">'
+    + '<div class="grid-2"><div><label for="he_s">Início</label><input type="time" id="he_s" value="' + hhmm(start) + '"></div>'
+    + '<div><label for="he_e">Fim</label><input type="time" id="he_e" value="' + hhmm(start + 60 * MIN) + '"></div></div>'
+    + '<label for="he_n">Motivo (opcional)</label><input type="text" id="he_n" maxlength="60" placeholder="Ex.: fechamento do mês">'
+    + '<p class="muted">As tarefas que estão esperando horário já podem ser encaixadas nesse tempo, pela urgência.</p>'
+    + '<div class="row between mt-12"><button id="dn_no">Cancelar</button><button class="primary" id="he_ok">Programar</button></div>');
+}
+
+// ---------- Ausência parcial ----------
+const PARTIAL_ABSENCE_REASONS = ['Médico', 'Assunto pessoal', 'Banco', 'Saída rápida'];
+
+/** Lê a janela de ausência parcial: { s, e, note } ou { error }. */
+function readPartialAbsence() {
+  const day = $('#pa_d')?.value;
+  const from = $('#pa_s')?.value;
+  const to = $('#pa_e')?.value;
+  if (!day || !from || !to) return { error: 'Informe o dia e o horário de saída e de volta.' };
+  const base = parseDateInput(day);
+  const s = atTime(base, from);
+  const e = atTime(base, to);
+  if (e <= s) return { error: 'O horário de volta precisa ser depois da saída.' };
+  if (e <= Date.now()) return { error: 'Esse horário já passou.' };
+  return { s, e, note: ($('#pa_n')?.value || '').trim() };
+}
+
+/** Prévia das tarefas agendadas que caem no período escolhido. */
+function partialAbsenceImpact() {
+  const box = $('#pa_aff');
+  if (!box) return;
+  const r = readPartialAbsence();
+  if (r.error) { box.innerHTML = '<p class="muted">' + esc(r.error) + '</p>'; return; }
+  const list = scheduledInPeriod(r.s, r.e);
+  const running = r.s <= Date.now() && allTasks().find((t) => t.emp === state.uid && t.status === 'andamento');
+  box.innerHTML = (list.length ? '<p class="muted">Vão para depois (na mesma ordem):</p><div class="history">'
+    + each(list, (t, i) => when(i, '<br>') + fmtTime(t.start) + ' — ' + esc(t.title)) + '</div>'
+    : '<p class="muted">Nenhuma tarefa agendada nesse horário.</p>')
+    + (running ? '<p class="muted">A tarefa em andamento <b>' + esc(running.title) + '</b> será pausada; o que falta vai para depois.</p>' : '');
+}
+
+function openPartialAbsence() {
+  const now = Date.now();
+  const start = Math.ceil(now / (5 * MIN)) * 5 * MIN;
+  const hhmm = (ms) => new Date(ms).toTimeString().slice(0, 5);
+  openModal('<h2>Ausência parcial</h2>'
+    + '<label for="pa_d">Dia</label><input type="date" id="pa_d" value="' + dateKey(now) + '" min="' + dateKey(now) + '">'
+    + '<div class="grid-2"><div><label for="pa_s">Saída</label><input type="time" id="pa_s" value="' + hhmm(start) + '"></div>'
+    + '<div><label for="pa_e">Volta</label><input type="time" id="pa_e" value="' + hhmm(start + 60 * MIN) + '"></div></div>'
+    + '<label for="pa_n">Motivo</label><input type="text" id="pa_n" maxlength="60" placeholder="Ex.: Médico">'
+    + '<div class="row gap-sm mt-6">' + each(PARTIAL_ABSENCE_REASONS, (n) => '<button type="button" class="small" data-pan="' + esc(n) + '">' + esc(n) + '</button>') + '</div>'
+    + '<div id="pa_aff" class="mt-12"></div>'
+    + '<p class="muted">Quem pediu as tarefas é avisado do novo horário.</p>'
+    + '<div class="row between mt-12"><button id="dn_no">Cancelar</button><button class="primary" id="pa_ok">Registrar ausência</button></div>');
+  partialAbsenceImpact();
 }
 
 // ---------- Ausência ----------

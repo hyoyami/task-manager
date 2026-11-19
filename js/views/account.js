@@ -80,6 +80,19 @@ function absentCard(p) {
     + '<p class="mb-0"><button class="danger" id="ab_open">Marcar hoje como ausente</button></p></div>';
 }
 
+/** Hora extra programada: a agenda passa a usar esse horário (e um dia de folga, se for o caso). */
+function overtimeCard(p) {
+  const now = Date.now();
+  const list = (p.extra || []).map((x, i) => ({ ...x, i })).filter((x) => x.e > now);
+  return '<div class="card"><b>Hora extra</b>'
+    + '<p class="muted">Vai trabalhar além do horário (ou num dia de folga)? Programe a hora extra: a agenda passa a usar esse '
+    + 'tempo para encaixar tarefas e iniciar nele não pede confirmação. O tempo trabalhado fora do expediente fica registrado '
+    + 'em cada tarefa.</p>'
+    + each(list, (x) => '<div class="row between muted"><span><b>Hora extra</b> · ' + fmtDay(x.s) + ' ' + fmtTime(x.s) + '–' + fmtTime(x.e)
+      + when(x.note, ' ' + esc(x.note)) + '</span><button class="small danger" data-herm="' + x.i + '">Remover</button></div>')
+    + '<p class="mb-0"><button id="he_open">Programar hora extra</button></p></div>';
+}
+
 function viewTimeOff() {
   const p = profileOf(state.uid);
   return '<h1>Horário de trabalho e folgas</h1>' + workHoursCard(p)
@@ -89,10 +102,17 @@ function viewTimeOff() {
       + when((p.wk || []).includes(i), ' checked') + '>' + n + '</label>')
     + '</div><p><button class="primary" id="wk_go">Salvar folga semanal</button></p></div>'
     + absentCard(p)
+    + overtimeCard(p)
+    + '<div class="card"><b>Ausência parcial</b>'
+    + '<p class="muted">Precisa sair por algumas horas (médico, banco, assunto pessoal)? Registre o período: a agenda não usa '
+    + 'esse horário e as tarefas que caírem nele vão para depois, na mesma ordem.</p>'
+    + '<p class="mb-0"><button id="pa_open">Registrar ausência parcial</button></p></div>'
     + '<h2>Folgas pontuais</h2><div class="card"><div class="row">'
     + '<div><label>De</label><input type="date" id="o_s"></div><div><label>Até</label><input type="date" id="o_e"></div></div>'
     + '<label>Motivo</label><input type="text" id="o_n"><p><button class="small" id="o_go">Adicionar</button></p>'
-    + each(p.off || [], (o, i) => (o.brk ? '' : '<div class="row between muted"><span>' + fmtDay(o.s) + ' → ' + fmtDay(o.e - 1) + ' ' + esc(o.note || '')
+    + each(p.off || [], (o, i) => (o.brk ? '' : '<div class="row between muted"><span>'
+      + (o.part ? '<b>Ausência parcial</b> · ' + fmtDay(o.s) + ' ' + fmtTime(o.s) + '–' + fmtTime(o.e) : fmtDay(o.s) + ' → ' + fmtDay(o.e - 1))
+      + ' ' + esc(o.note || '')
       + '</span><button class="small danger" data-rm="' + i + '">Remover</button></div>'))
     + '</div>';
 }

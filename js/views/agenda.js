@@ -26,28 +26,40 @@ function dayTimeline(emp, day) {
   const ws = atTime(day, p.start);
   const we = atTime(day, p.end);
   const next = addDays(day, 1);
+  const windows = workWindows(p, day);
   const items = allTasks()
     .filter((t) => t.emp === emp && t.start >= day && t.start < next && [...OCCUPYING, 'concluida'].includes(t.status))
     .map((task) => ({ s: task.start, e: taskEnd(task), task }));
   const lunch = breakOf(p, day);
-  if (lunch.e > lunch.s) items.push({ ...lunch, label: 'Intervalo' });
-  if (isWeeklyOff(p, day)) items.push({ s: ws, e: we, label: 'Folga semanal' });
-  else if (isHolidayOff(day)) items.push({ s: ws, e: we, label: holidayText(holidayOn(day)), holiday: true });
-  (p.off || []).filter((o) => o.e > ws && o.s < we).forEach((o) => items.push({
-    s: Math.max(o.s, ws), e: Math.min(o.e, we), label: (o.brk ? 'Intervalo' : 'Indisponível') + (o.note ? ': ' + o.note : ''),
+  if (lunch.e > lunch.s && !isWeeklyOff(p, day) && !isHolidayOff(day)) items.push({ ...lunch, label: 'Intervalo' });
+  // Sem expediente normal (folga/feriado): a faixa inteira; com hora extra no dia, só um aviso no topo.
+  const dayOff = isWeeklyOff(p, day) ? { label: 'Folga semanal' } : isHolidayOff(day) ? { label: holidayText(holidayOn(day)), holiday: true } : null;
+  if (dayOff) items.push(windows.length ? { s: day, e: day, ...dayOff, note: true } : { s: ws, e: we, ...dayOff });
+  extrasOn(p, day).forEach((x) => items.push({ s: x.s, e: x.s, extra: x }));
+  const lo = Math.min(ws, ...windows.map((w) => w.s));
+  const hi = Math.max(we, ...windows.map((w) => w.e));
+  (p.off || []).filter((o) => o.e > lo && o.s < hi).forEach((o) => items.push({
+    s: Math.max(o.s, lo), e: Math.min(o.e, hi), label: (o.brk ? 'Intervalo' : o.part ? 'Ausente' : 'Indisponível') + (o.note ? ': ' + o.note : ''),
   }));
-  items.sort((a, b) => a.s - b.s);
+  items.sort((a, b) => a.s - b.s || (b.extra ? 1 : 0) - (a.extra ? 1 : 0));
 
-  const out = [];
+  // Horários livres: só dentro das janelas de trabalho (expediente + horas extras).
   const minGap = SLOT_ROUND * MIN;
-  let cursor = ws;
-  for (const it of items) {
-    if (it.s - cursor >= minGap) out.push({ s: cursor, e: it.s, free: true });
-    out.push(it);
-    cursor = Math.max(cursor, it.e);
+  const free = [];
+  for (const w of windows) {
+    let cursor = w.s;
+    for (const it of items.filter((x) => x.e > w.s && x.s < w.e && x.e > x.s)) {
+      if (it.s - cursor >= minGap) free.push({ s: cursor, e: it.s, free: true });
+      cursor = Math.max(cursor, it.e);
+    }
+    if (w.e - cursor >= minGap) free.push({ s: cursor, e: w.e, free: true });
   }
-  if (we - cursor >= minGap) out.push({ s: cursor, e: we, free: true });
-  return out;
+  // Corta os trechos livres no início de cada hora extra (a faixa "Hora extra" aparece no lugar certo).
+  for (const x of extrasOn(p, day)) {
+    const i = free.findIndex((f) => f.s < x.s && f.e > x.s);
+    if (i >= 0) free.splice(i, 1, { ...free[i], e: x.s }, { ...free[i], s: x.s });
+  }
+  return [...items, ...free].sort((a, b) => a.s - b.s || (a.extra || a.note ? -1 : 0) - (b.extra || b.note ? -1 : 0));
 }
 
 /** Garante funcionário e visão válidos para a agenda (qualquer data pode ser vista). */
@@ -243,13 +255,16 @@ function dayView(emp, canControl) {
     + (editable ? ' · semana de agendamento: ' + fmtDay(week.s) + ' a ' + fmtDay(week.e - 1)
       : ' · fora da semana atual: só visualização') + '</p>';
 
-  // Sem almoço fixo: botão "Iniciar intervalo" (ou o intervalo em curso) na agenda de hoje.
-  if (canControl && p.noBreak && day === startOfDay(Date.now())) {
-    const br = currentBreak(p);
-    h += br ? '<div class="card break-card"><b>Em intervalo' + (br.note ? ': ' + esc(br.note) : '') + '</b>'
-      + '<div class="muted">' + fmtTime(br.s) + '–' + fmtTime(br.e) + ' · volta às ' + fmtTime(br.e) + '</div>'
-      + '<p class="mb-0"><button class="small primary" id="br_end">Encerrar intervalo</button></p></div>'
-      : '<div class="row toolbar"><button class="primary" id="br_open">Iniciar intervalo</button></div>';
+  // Agenda de hoje (própria): "Iniciar intervalo" (sem almoço fixo) e "Hora extra".
+  if (canControl && day === startOfDay(Date.now())) {
+    const br = p.noBreak && currentBreak(p);
+    if (br) {
+      h += '<div class="card break-card"><b>Em intervalo' + (br.note ? ': ' + esc(br.note) : '') + '</b>'
+        + '<div class="muted">' + fmtTime(br.s) + '–' + fmtTime(br.e) + ' · volta às ' + fmtTime(br.e) + '</div>'
+        + '<p class="mb-0"><button class="small primary" id="br_end">Encerrar intervalo</button></p></div>';
+    }
+    h += '<div class="row toolbar">' + when(p.noBreak && !br, '<button class="primary" id="br_open">Iniciar intervalo</button>')
+      + '<button class="small" id="he_open">Hora extra</button></div>';
   }
 
   if (canControl && editable) {
@@ -277,6 +292,9 @@ function dayView(emp, canControl) {
   h += each(programmed, (x) => taskCard(x.task, { canControl }));
   h += each(dayTimeline(emp, day), (it) => {
     if (it.free) return editable ? freeSlots(it) : '<div class="card slot muted static">' + fmtTime(it.s) + '–' + fmtTime(it.e) + ' · livre</div>';
+    if (it.extra) return '<div class="card extra-band"><b>Hora extra</b> · ' + fmtTime(it.extra.s) + '–' + fmtTime(it.extra.e)
+      + when(it.extra.note, ' · ' + esc(it.extra.note)) + '</div>';
+    if (it.note) return '<div class="card holiday-note">' + esc(it.label) + ' · com hora extra</div>';
     if (it.holiday) return '<div class="card blocked holiday"><b>' + esc(it.label) + '</b><div class="muted">Dia sem expediente</div></div>';
     if (it.label) return '<div class="card blocked">' + fmtTime(it.s) + '–' + fmtTime(it.e) + ' · ' + esc(it.label) + '</div>';
     // Todos veem todas as tarefas da agenda (de qualquer solicitante); só o funcionário controla.
@@ -338,6 +356,7 @@ function runningDetail(t, canControl) {
     + when(device || t.devName, item('Aparelho', esc(device?.name || t.devName) + when(t.devArea, ' (' + esc(t.devArea) + ')')
       + when(t.devIp, ' · IP ' + esc(t.devIp)) + when(device, ' · ' + esc(device?.status || ''))))
     + when(t.preset, item('Problema', esc(t.preset)))
+    + when(t.ot, item('Hora extra', fmtDuration((t.ot || 0) * MIN)))
     + item('Criada em', fmtDateTime(t.created))
     + '</dl>'
     + '<div class="row actions">' + taskButtons(t, canControl, { withHistory: false }) + '</div>'
