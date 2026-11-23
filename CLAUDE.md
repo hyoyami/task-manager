@@ -39,10 +39,15 @@ js/app/                    render.js (abas e render()), actions.js (o que cada b
 tests/smoke.py             teste rápido (cadastro + login)
 tests/e2e.py               teste ponta a ponta dos fluxos principais (relógio fixo, modo local)
 tests/supabase_e2e.py      integração real com o Supabase (2 navegadores, tempo real, RLS) + limpeza
-scripts/relatorio-commits.sh  relatório dos commits (dia|semana|mes|intervalo) em Markdown
-.claude/agents/relatorio-commits.md, .claude/skills/relatorio-commits/  agente + comando /relatorio-commits
-                           (rodam o script, escrevem o resumo e salvam em relatorios/ o .md e o .pdf)
-scripts/relatorio-pdf.py   .md do relatório → PDF diagramado (Playwright/Chromium; usar .venv/bin/python)
+scripts/relatorio.py       relatórios em Markdown: commits | usuarios | tarefas | aparelhos | jornada × dia|semana|mes|intervalo
+                           (usuarios = funcionários × solicitantes separados, desempenho por pessoa)
+                           (os da empresa leem o Supabase só para leitura, `--empresa`; `empresas` lista);
+                           a cada execução apaga de relatorios/ os .md/.pdf com mais de 7 dias (`limpar` só limpa)
+scripts/relatorio-commits.sh  dados dos commits (usado por relatorio.py commits)
+scripts/relatorio-pdf.py   .md do relatório → PDF diagramado, qualquer tipo (Playwright/Chromium; usar .venv/bin/python);
+                           seções "## Gráfico — …" (tabela: rótulo + colunas numéricas) viram colunas agrupadas (SVG)
+.claude/agents/relatorios.md, .claude/skills/relatorio/  agente + comando /relatorio (escolhem tipo/período/empresa,
+                           escrevem o resumo e salvam em relatorios/ — fora do git — o .md e o .pdf)
 scripts/capturas.py        refaz as imagens do README (docs/img/) com uma empresa de demonstração (modo local)
 ```
 

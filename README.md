@@ -301,9 +301,10 @@ docs/img/             imagens do README
 
 | Comando | O que faz |
 |---|---|
-| `scripts/relatorio-commits.sh dia\|semana\|mes` | Relatório dos commits do período em Markdown (números, áreas alteradas, commits por dia). |
-| `.venv/bin/python scripts/relatorio-pdf.py relatorios/<arquivo>.md` | Versão diagramada em PDF do relatório. |
-| `/relatorio-commits` (Claude Code) | Gera o relatório com um resumo do que foi entregue e salva `.md` + `.pdf` em `relatorios/` (fora do git). |
+| `python3 scripts/relatorio.py TIPO dia\|semana\|mes [--empresa NOME]` | Relatório em Markdown. Tipos: `commits` (o que foi desenvolvido), `usuarios` (desempenho de cada funcionário e pedidos de cada solicitante), `tarefas` (produtividade), `aparelhos` (manutenção e tempo parado), `jornada` (horas extras e ausências). |
+| `.venv/bin/python scripts/relatorio-pdf.py relatorios/<arquivo>.md` | Versão diagramada em PDF de qualquer relatório. |
+| `python3 scripts/relatorio.py limpar` | Apaga os relatórios com mais de 7 dias (isso também acontece sozinho sempre que um relatório é gerado). |
+| `/relatorio` (Claude Code) | Pergunta tipo, período e empresa, escreve um resumo com os pontos de atenção e salva `.md` + `.pdf` em `relatorios/` (fora do git). |
 | `.venv/bin/python scripts/capturas.py` | Refaz as imagens deste README a partir de uma empresa de demonstração. |
 
 ## Limitações e próximos passos

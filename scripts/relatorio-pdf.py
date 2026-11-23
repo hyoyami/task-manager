@@ -1,4 +1,7 @@
-"""Transforma o relatório de commits (.md gerado por scripts/relatorio-commits.sh + resumo) num PDF diagramado.
+"""Transforma um relatório (.md gerado por scripts/relatorio.py ou relatorio-commits.sh + resumo) num PDF diagramado.
+
+Funciona para qualquer tipo: capa, cartões com os "Números", "Resumo" em destaque e as demais seções (tabelas,
+listas, subtítulos e parágrafos). O relatório de commits ganha ainda a barra de volume por área e a linha do tempo.
 
 Uso:   .venv/bin/python scripts/relatorio-pdf.py relatorios/commits-dia-2026-11-18.md   (gera o .pdf ao lado)
 Requer: Playwright com Chromium (o mesmo dos testes):
@@ -25,15 +28,18 @@ def inline(text):
     out = html.escape(text, quote=False)
     out = re.sub(r"`([^`]+)`", r"<code>\1</code>", out)
     out = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", out)
+    out = re.sub(r"(?<![\w`])_(?!\s)(.+?)(?<!\s)_(?![\w`])", r"<em>\1</em>", out)
     return out
 
 
 def parse(md):
-    rep = {"title": "", "meta": "", "sections": {}, "order": []}
+    rep = {"title": "", "kind": "Relatório", "meta": "", "sections": {}, "order": []}
     current = None
     for line in md.splitlines():
         if line.startswith("# "):
-            rep["title"] = line[2:].split("—", 1)[-1].strip()
+            left, _, right = line[2:].partition("—")
+            rep["title"] = (right or left).strip()
+            rep["kind"] = left.strip() if right else "Relatório"
         elif line.startswith("## "):
             current = line[3:].strip()
             rep["sections"][current] = []
@@ -97,6 +103,7 @@ body { margin: 0; font: 10.5pt/1.5 "Inter", "Segoe UI", "Helvetica Neue", "DejaV
 .kpi { border: 1px solid var(--risco); border-radius: 10px; padding: 10px 12px; background: var(--folha); }
 .kpi b { display: block; font-size: 18pt; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .kpi span { font-size: 8pt; color: var(--lapis); text-transform: uppercase; letter-spacing: .06em; }
+.kpis.small .kpi b { font-size: 12.5pt; white-space: nowrap; } .kpis.small .kpi { padding: 9px 10px; }
 .kpi.mais b { color: var(--mais); } .kpi.menos b { color: var(--menos); }
 h2 { font-size: 12pt; margin: 18px 0 8px; padding-bottom: 5px; border-bottom: 2px solid var(--carvao);
      text-transform: uppercase; letter-spacing: .08em; break-after: avoid; }
@@ -124,6 +131,13 @@ code { font: 8.5pt "DejaVu Sans Mono", Menlo, Consolas, monospace; background: v
 .commit .subject { font-weight: 700; margin-top: 1px; }
 .commit ul { margin: 3px 0 0; padding-left: 16px; color: #3a3a3a; font-size: 9pt; }
 .commit li { margin: 1px 0; }
+.chart-block { break-inside: avoid; }
+.chart { border: 1px solid var(--risco); border-radius: 10px; padding: 10px 12px 4px; margin: 4px 0 6px; }
+.chart-note { font-size: 8.5pt; color: var(--lapis); margin: 2px 0 6px; }
+.chart-table table { font-size: 8.5pt; }
+h3 { font-size: 10.5pt; margin: 12px 0 6px; break-after: avoid; }
+p { margin: 4px 0 8px; }
+ul.plain { margin: 4px 0 10px; padding-left: 18px; } ul.plain li { margin: 2px 0; }
 .empty { padding: 18px; text-align: center; color: var(--lapis); border: 1px dashed var(--risco); border-radius: 10px; }
 """
 
@@ -132,11 +146,108 @@ def numbers_kpis(rep):
     head, rows = table(rep["sections"].get("Números", []))
     if not rows:
         return ""
-    v = rows[0]
-    tiles = [("Commits", v[0], ""), ("Dias com commits", v[1], ""), ("Arquivos", v[2], ""),
-             ("Linhas adicionadas", v[3], "mais"), ("Linhas removidas", v[4], "menos")]
-    return '<div class="kpis">' + "".join(
-        f'<div class="kpi {c}"><b>{html.escape(n)}</b><span>{html.escape(t)}</span></div>' for t, n, c in tiles) + "</div>"
+    tone = lambda v: "mais" if v.startswith("+") else "menos" if v.startswith("−") else ""
+    small = " small" if len(head) >= 6 else ""
+    return f'<div class="kpis{small}" style="grid-template-columns:repeat({len(head)},1fr)">' + "".join(
+        f'<div class="kpi {tone(v)}"><b>{inline(v)}</b><span>{html.escape(t)}</span></div>' for t, v in zip(head, rows[0])) + "</div>"
+
+
+# ---------- Gráfico de barras agrupadas (seções "Gráfico — …") ----------
+# Paleta categórica validada (ordem fixa): azul, laranja, verde-água. O verde-água fica abaixo de 3:1 no branco,
+# por isso todo valor vai escrito na barra e a tabela com os mesmos números fica logo abaixo.
+SERIES = ["#2a78d6", "#eb6834", "#1baf7a"]
+
+
+def grouped_bars(head, rows):
+    """SVG de colunas agrupadas: um grupo por linha (rótulo = 1ª coluna), uma série por coluna numérica."""
+    names, series = head[1:], len(head) - 1
+    vals = [[int(re.sub(r"\D", "", c) or 0) for c in r[1:]] for r in rows]
+    top = max([v for r in vals for v in r] + [1])
+    step = next(s for s in (1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000) if top / s <= 5)
+    ymax = step * -(-top // step)
+    W, H, L, R, T, B = 680, 300, 34, 8, 40, 46
+    pw, ph = W - L - R, H - T - B
+    band = pw / max(len(rows), 1)
+    bw, gap = min(24, (band * 0.7 - (series - 1) * 2) / series), 2
+    gw = series * bw + (series - 1) * gap
+    y = lambda v: T + ph - v / ymax * ph
+    svg = [f'<svg viewBox="0 0 {W} {H}" width="100%" role="img" aria-label="Gráfico de colunas agrupadas: {html.escape(", ".join(names))} por usuário" '
+           'style="font-family:inherit">']
+    for k in range(0, ymax + 1, step):  # grade recessiva
+        yy = y(k)
+        svg.append(f'<line x1="{L}" x2="{W - R}" y1="{yy:.1f}" y2="{yy:.1f}" stroke="#ececec" stroke-width="1"/>'
+                   f'<text x="{L - 6}" y="{yy + 3:.1f}" text-anchor="end" font-size="9" fill="#8a8a8a">{k}</text>')
+    svg.append(f'<line x1="{L}" x2="{W - R}" y1="{y(0):.1f}" y2="{y(0):.1f}" stroke="#bdbdbd" stroke-width="1"/>')
+    for i, (r, v) in enumerate(zip(rows, vals)):
+        x0 = L + i * band + (band - gw) / 2
+        for j, val in enumerate(v):
+            x = x0 + j * (bw + gap)
+            h = y(0) - y(val)
+            if val:  # coluna com topo arredondado (4px) e base reta
+                rr = min(4, h, bw / 2)
+                svg.append(f'<path d="M{x:.1f},{y(0):.1f} V{y(val) + rr:.1f} Q{x:.1f},{y(val):.1f} {x + rr:.1f},{y(val):.1f} '
+                           f'H{x + bw - rr:.1f} Q{x + bw:.1f},{y(val):.1f} {x + bw:.1f},{y(val) + rr:.1f} V{y(0):.1f} Z" fill="{SERIES[j % len(SERIES)]}">'
+                           f'<title>{html.escape(r[0])} — {html.escape(names[j])}: {val}</title></path>')
+            svg.append(f'<text x="{x + bw / 2:.1f}" y="{y(val) - 4:.1f}" text-anchor="middle" font-size="9" font-weight="700" fill="#3a3a3a">{val}</text>')
+        label = r[0] if len(r[0]) <= 22 else r[0][:21] + "…"
+        svg.append(f'<text x="{L + i * band + band / 2:.1f}" y="{H - B + 16}" text-anchor="middle" font-size="10" fill="#161616">{html.escape(label)}</text>')
+    lx = L  # legenda (sempre presente com 2+ séries), em uma linha acima do gráfico
+    for j, n in enumerate(names):
+        svg.append(f'<rect x="{lx}" y="12" width="10" height="10" rx="2" fill="{SERIES[j % len(SERIES)]}"/>'
+                   f'<text x="{lx + 14}" y="21" font-size="10" fill="#3a3a3a">{html.escape(n)}</text>')
+        lx += 14 + len(n) * 5.6 + 18
+    svg.append("</svg>")
+    return "<div class='chart'>" + "".join(svg) + "</div>"
+
+
+def chart_section(lines):
+    """Seção "Gráfico — …": legenda explicativa, o gráfico e a tabela (visão em tabela dos mesmos números)."""
+    rows = [l for l in lines if l.startswith("|")]
+    if len(rows) < 3:
+        return generic_section(lines)
+    cells = [[c.strip() for c in r.strip().strip("|").split("|")] for r in rows]
+    head, body = cells[0], cells[2:]
+    notes = [l for l in lines if l.strip() and not l.startswith("|")]
+    return (grouped_bars(head, body) + "".join(f"<p class='chart-note'>{inline(n)}</p>" for n in notes)
+            + "<div class='chart-table'>" + generic_section(rows) + "</div>")
+
+
+def generic_section(lines):
+    """Tabelas (alinhamento pela linha ---:), listas com sub-itens, ### subtítulos e parágrafos."""
+    out, i = [], 0
+    while i < len(lines):
+        line = lines[i]
+        if line.startswith("|"):
+            block = []
+            while i < len(lines) and lines[i].startswith("|"):
+                block.append(lines[i])
+                i += 1
+            cells = [[c.strip() for c in re.split(r"(?<!\\)\|", r.strip().strip("|"))] for r in block]
+            head, sep, body = cells[0], cells[1] if len(cells) > 1 else [], cells[2:]
+            right = [c.endswith(":") for c in sep] + [False] * len(head)
+            cls = lambda k: " class='n'" if right[k] else ""
+            out.append("<table><tr>" + "".join(f"<th{cls(k)}>{inline(h)}</th>" for k, h in enumerate(head)) + "</tr>"
+                       + "".join("<tr>" + "".join(f"<td{cls(k)}>{inline(c.replace(chr(92) + '|', '|'))}</td>" for k, c in enumerate(r)) + "</tr>"
+                                 for r in body) + "</table>")
+            continue
+        if line.startswith("- "):
+            items = []
+            while i < len(lines) and (lines[i].startswith("- ") or lines[i].startswith("  - ")):
+                if lines[i].startswith("- "):
+                    items.append([lines[i][2:], []])
+                else:
+                    items[-1][1].append(lines[i][4:])
+                i += 1
+            out.append("<ul class='plain'>" + "".join(
+                f"<li>{inline(t)}" + (("<ul>" + "".join(f"<li>{inline(x)}</li>" for x in sub) + "</ul>") if sub else "") + "</li>"
+                for t, sub in items) + "</ul>")
+            continue
+        if line.startswith("### "):
+            out.append(f"<h3>{inline(line[4:])}</h3>")
+        elif line.strip():
+            out.append(f"<p>{inline(line)}</p>")
+        i += 1
+    return "".join(out)
 
 
 def authors_table(rep):
@@ -177,20 +288,33 @@ def timeline(rep):
 
 
 def build_html(rep):
-    title = html.escape(rep["title"] or "Relatório de commits")
-    parts = [f'<div class="cover"><div class="brand">TASK MANAGER · Relatório de commits</div><h1>{title}</h1>'
+    title = html.escape(rep["title"] or "Relatório")
+    parts = [f'<div class="cover"><div class="brand">TASK MANAGER · {html.escape(rep["kind"])}</div><h1>{title}</h1>'
              f'<div class="meta">{inline(rep["meta"])}</div></div>']
-    if "Números" not in rep["sections"]:  # período sem commits
+    if "Números" not in rep["sections"]:  # período sem dados (ex.: nenhum commit)
         resumo = [l for l in rep["sections"].get("Resumo", []) if l.strip()]
-        text = " ".join(l.lstrip("- ") for l in resumo) or "Nenhum commit neste período."
+        intro = [l for l in rep.get("intro", []) if l.strip()]
+        text = " ".join(l.lstrip("- ") for l in resumo + intro) or "Nada neste período."
         return parts[0] + f'<div class="empty">{inline(text)}</div>'
     parts.append(numbers_kpis(rep))
     summary = bullets(rep["sections"].get("Resumo", []))
     if summary:
         parts.append("<h2>Resumo</h2><ul class='summary'>" + "".join(f"<li>{inline(t)}</li>" for t, _ in summary) + "</ul>")
-    parts.append("<h2>Equipe e áreas do código</h2><div class='two'><div>" + authors_table(rep) + "</div><div>"
-                 + areas_table(rep) + "</div></div>")
-    parts.append("<h2>Commits por dia</h2>" + timeline(rep))
+    commits = "Commits por dia" in rep["sections"]
+    for name in rep["order"]:
+        if name in ("Números", "Resumo"):
+            continue
+        if commits and name == "Por autor":
+            parts.append("<h2>Equipe e áreas do código</h2><div class='two'><div>" + authors_table(rep) + "</div><div>"
+                         + areas_table(rep) + "</div></div>")
+        elif commits and name == "Áreas do código mais alteradas":
+            continue
+        elif commits and name == "Commits por dia":
+            parts.append("<h2>Commits por dia</h2>" + timeline(rep))
+        elif name.startswith("Gráfico"):
+            parts.append(f"<div class='chart-block'><h2>{inline(name)}</h2>" + chart_section(rep["sections"][name]) + "</div>")
+        else:
+            parts.append(f"<h2>{inline(name)}</h2>" + generic_section(rep["sections"][name]))
     return "".join(parts)
 
 
