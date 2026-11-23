@@ -43,6 +43,7 @@ scripts/relatorio-commits.sh  relatório dos commits (dia|semana|mes|intervalo) 
 .claude/agents/relatorio-commits.md, .claude/skills/relatorio-commits/  agente + comando /relatorio-commits
                            (rodam o script, escrevem o resumo e salvam em relatorios/ o .md e o .pdf)
 scripts/relatorio-pdf.py   .md do relatório → PDF diagramado (Playwright/Chromium; usar .venv/bin/python)
+scripts/capturas.py        refaz as imagens do README (docs/img/) com uma empresa de demonstração (modo local)
 ```
 
 ## Como rodar
